@@ -9,11 +9,11 @@ from decouple import config
 
 TOKEN = config('TELEGRAM_BOT_TOKEN')
 
-bouquets_file = 'bouquets.json'
-lost_flowers_file = 'lost_flowers.json'
-report_file = 'report.xlsx'
+bouquets_file = './data/bouquets.json'
+lost_flowers_file = './data/lost_flowers.json'
+report_file = './data/report.xlsx'
 
-ADMIN_CHAT_ID =  [int(admin_id) for admin_id in config('ADMIN_CHAT_ID').split(',')]
+ADMIN_CHAT_ID = [int(admin_id) for admin_id in config('ADMIN_CHAT_ID').split(',')]
 
 # Проверка и создание файлов, если они отсутствуют
 try:
@@ -27,12 +27,14 @@ try:
         lost_flowers = json.load(file)
 except FileNotFoundError:
     lost_flowers = {}
+print('ABOBA')
+
 
 def save_data():
     """Сохраняет данные в соответствующие файлы."""
+
     with open(bouquets_file, 'w', encoding='utf-8') as file:
         json.dump(bouquets, file, ensure_ascii=False)
-
     with open(lost_flowers_file, 'w', encoding='utf-8') as file:
         json.dump(lost_flowers, file, ensure_ascii=False)
 
@@ -147,20 +149,56 @@ def generate_report() -> pd.ExcelWriter:
     writer = pd.ExcelWriter(report_file, engine='xlsxwriter')
 
     # Добавляем данные о букетах в отчет
-    for chat_id, bouquets_data in bouquets.items():
-        df_bouquets = pd.DataFrame(bouquets_data).T
-        df_bouquets.index.name = 'Bouquet ID'
-        df_bouquets.to_excel(writer, sheet_name=f'Bouquets_{chat_id}')
+    df = pd.DataFrame(columns=['chat_id', 'date', 'price', 'Название цветка', 'Количество'])
 
+    # Проходим по данным и добавляем строки в DataFrame
+    for chat_id, bouquets_info in bouquets.items():
+        for bouquet_key, bouquet_data in bouquets_info.items():
+            price = bouquet_data['price']
+            composition = bouquet_data['composition']
+            
+            # Создаем временный DataFrame для composition
+            temp_df = pd.DataFrame.from_dict(composition, orient='index', columns=['Количество'])
+            
+            # Добавляем колонку "Название цветка"
+            temp_df['Название цветка'] = temp_df.index
+            
+            # Добавляем остальные колонки
+            temp_df['chat_id'] = chat_id
+            temp_df['date'] = bouquet_key
+            temp_df['price'] = price
+            
+            # Объединяем временный DataFrame с основным
+            df = pd.concat([df, temp_df])
+
+    # Сбрасываем мультииндекс для корректного отображения
+    # df.reset_index(drop=True, inplace=True)
+    timestamp_shortened = bouquet_key[:10]
+    df.to_excel(writer, sheet_name=f'Bouquets_{timestamp_shortened}', index=False)
+    
     # Добавляем данные о пропавших цветах в отчет
-    for chat_id, lost_flowers_data in lost_flowers.items():
-        for timestamp, lost_flowers_item in lost_flowers_data.items():
-            # Обрежем timestamp до максимальной длины 31 символ
-            timestamp_shortened = timestamp[:10]
+    df_lost = pd.DataFrame(columns=['chat_id', 'timestamp', 'Название цветка', 'Количество'])
 
-            df_lost_flowers = pd.DataFrame({timestamp_shortened: lost_flowers_item}).T
-            df_lost_flowers.index.name = 'Lost Flowers'
-            df_lost_flowers.to_excel(writer, sheet_name=f'Lost_Flowers_{timestamp_shortened}')
+    # Проходим по данным и добавляем строки в DataFrame
+    for chat_id, timestamps_info in lost_flowers.items():
+        for timestamp, flowers_info in timestamps_info.items():
+            # Создаем временный DataFrame для цветов
+            temp_df = pd.DataFrame.from_dict(flowers_info, orient='index', columns=['Количество'])
+            
+            # Добавляем колонку "Название цветка"
+            temp_df['Название цветка'] = temp_df.index
+            
+            # Добавляем остальные колонки
+            temp_df['chat_id'] = chat_id
+            temp_df['timestamp'] = timestamp
+            
+            # Объединяем временный DataFrame с основным
+            df_lost = pd.concat([df_lost, temp_df])
+
+    # Сбрасываем индекс для корректного отображения
+    df_lost.reset_index(drop=True, inplace=True)
+    timestamp_shortened = timestamp[:10]
+    df_lost.to_excel(writer, sheet_name=f'Lost_flowers_{timestamp_shortened}', index=False, index_label=['chat_id', 'timestamp'])
 
     return writer
 
@@ -176,6 +214,68 @@ def admin_command(update: Update, context: CallbackContext) -> None:
         update.message.reply_document(open(report_file, 'rb'), caption='Отчет по букетам и пропавшим цветам')
     except Exception as e:
         update.message.reply_text(f'Произошла ошибка при создании отчета: {e}')
+
+############################################## ДОБАВЛЕНИЕ ПОЛЬЗОВАТЕЛЕЙ ##########################################
+# def add_user(update: Update, context: CallbackContext) -> int:
+#     """Обработчик команды /add_user (доступно только админам)."""
+#     if update.message.chat_id not in ADMIN_CHAT_ID:
+#         update.message.reply_text('Вы не являетесь администратором. Доступ запрещен.')
+#         return ConversationHandler.END
+
+#     update.message.reply_text('Теперь введите тип пользователя (admins или users) для добавления.')
+#     context.user_data['stage'] = 1
+#     return 1
+
+# def handle_user(update: Update, context: CallbackContext) -> int:
+#     """Обработчик ввода типа пользователя и имени."""
+#     stage = context.user_data['stage']
+#     user_input = update.message.text.lower()
+
+#     if stage == 1:
+#         context.user_data['user_type'] = user_input
+#         update.message.reply_text(f'Теперь введите имя пользователя для добавления в категорию {user_input}.')
+#     elif stage == 0:
+#         user_type = context.user_data['user_type']
+#         chat_id = update.message.chat_id
+
+#         # Вызываем функцию добавления пользователя в файл
+#         add_user_to_json('.', user_type, user_input, chat_id)
+
+#         # Сбрасываем ожидание данных
+#         del context.user_data['user_type']
+#         update.message.reply_text(f"Пользователь {user_input} успешно добавлен в категорию {user_type}.")
+
+#         return ConversationHandler.END
+
+#     return stage
+
+# def add_user_to_json(file_path, user_type, name, chat_id):
+#     """Функция добавления пользователя в JSON-файл."""
+#     # Загружаем текущие данные из файла
+#     with open(file_path, 'r') as file:
+#         data = json.load(file)
+
+#     # Проверяем, существует ли ключ для данного типа пользователей
+#     if user_type not in data:
+#         data[user_type] = []
+
+#     # Проверяем, что пользователь с таким chat_id не существует
+#     if all(user['chat_id'] != chat_id for user in data[user_type]):
+#         # Добавляем нового пользователя
+#         data[user_type].append({
+#             "name": name,
+#             "chat_id": chat_id
+#         })
+
+#         # Записываем обновленные данные в файл
+#         with open(file_path, 'w') as file:
+#             json.dump(data, file, indent=2)
+
+# def cancel(update: Update, context: CallbackContext) -> int:
+#     """Обработчик команды /cancel."""
+#     update.message.reply_text('Операция отменена.')
+#     return ConversationHandler.END
+#################################################################################
 
 def main() -> None:
     updater = Updater(TOKEN)
@@ -199,11 +299,22 @@ def main() -> None:
         fallbacks=[],
     )
 
+    # conv_handler_users = ConversationHandler(
+    #     entry_points=[CommandHandler('start', start)],
+    #     states={
+    #         0: [CommandHandler('add_user', add_user)],
+    #         1: [MessageHandler(Filters.text & ~Filters.command, handle_user)],
+    #     },
+    #     fallbacks=[CommandHandler('cancel', cancel)],
+    # )
+
     dp.add_handler(conv_handler_bouquet)
     dp.add_handler(conv_handler_lost_flowers)
+    # dp.add_handler(conv_handler_users)
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("help", help_command))
     dp.add_handler(CommandHandler("admin", admin_command))
+    # dp.add_handler(CommandHandler("add_user", add_user))
 
     updater.start_polling()
 
