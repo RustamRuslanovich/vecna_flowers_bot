@@ -1,3 +1,4 @@
+import os
 import json
 import pandas as pd
 import hashlib
@@ -12,6 +13,7 @@ TOKEN = config('TELEGRAM_BOT_TOKEN')
 bouquets_file = './data/bouquets.json'
 lost_flowers_file = './data/lost_flowers.json'
 report_file = './data/report.xlsx'
+DATA_FILE_PATH = '.'
 
 ADMIN_CHAT_ID = [int(admin_id) for admin_id in config('ADMIN_CHAT_ID').split(',')]
 
@@ -48,8 +50,11 @@ def help_command(update: Update, context: CallbackContext) -> None:
 
 def add_bouquet(update: Update, context: CallbackContext) -> int:
     """Начинает процесс добавления нового букета."""
+
+    # context.user_data.pop('bouquet_key', None)
+    
     chat_id = update.message.chat_id
-    user_id = update.message.from_user.id
+    # user_id = update.message.from_user.id
 
     if chat_id not in bouquets:
         bouquets[chat_id] = {}
@@ -71,15 +76,22 @@ def get_bouquet_price(update: Update, context: CallbackContext) -> int:
         return ConversationHandler.END
 
     try:
+        print(float(update.message.text))
         price = float(update.message.text)
         bouquets[chat_id][bouquet_key]['price'] = price
 
         update.message.reply_text('Введите состав букета (формат: цвет1 - количество1, цвет2 - количество2):')
         return 'GET_COMPOSITION'
-    except ValueError:
-        update.message.reply_text('Пожалуйста, введите корректную стоимость в виде числа.')
-        return 'GET_BOUQUET_PRICE'
+    
+    except ValueError as e:
+        # Печать сообщения об ошибке для отладки
+        print(f"Ошибка при вводе стоимости букета: {e}")
 
+        # Пожалуйста, введите корректную стоимость в виде числа.
+        update.message.reply_text('Пожалуйста, введите корректную стоимость в виде числа.')
+        return add_bouquet(update, context)
+
+    
 def get_composition(update: Update, context: CallbackContext) -> int:
     """Обрабатывает ввод состава букета."""
     chat_id = update.message.chat_id
@@ -96,7 +108,7 @@ def get_composition(update: Update, context: CallbackContext) -> int:
         try:
             flower, quantity = item.strip().split('-')
             bouquets[chat_id][bouquet_key]['composition'][flower.strip()] = int(quantity)
-        except ValueError:
+        except:
             update.message.reply_text('Некорректный формат ввода. Используйте формат: цвет1 - количество1, цвет2 - количество2.')
 
     update.message.reply_text('Букет успешно добавлен!')
@@ -131,12 +143,16 @@ def get_lost_flowers(update: Update, context: CallbackContext) -> int:
 
     for item in lost_flowers_items:
         parts = item.split('-')
-        if len(parts) == 2:
-            try:
-                flower, quantity = parts[0].strip(), parts[1].strip()
-                lost_flowers.setdefault(chat_id, {}).setdefault(timestamp, {})[flower] = int(quantity)
-            except ValueError:
-                update.message.reply_text('Некорректный формат ввода. Используйте формат: цвет1 - количество1, цвет2 - количество2.')
+        # if len(parts) == 2:
+        try:
+            flower, quantity = parts[0].strip(), parts[1].strip()
+            lost_flowers.setdefault(chat_id, {}).setdefault(timestamp, {})[flower] = int(quantity)
+        except:
+            update.message.reply_text('Некорректный формат ввода')
+            return add_lost_flowers(update, context)
+        # else:
+        #     update.message.reply_text('Некорректный формат ввода. Используйте формат: цвет1 - количество1, цвет2 - количество2.')
+        #     return add_lost_flowers(update, context)  # Возвращаемся к началу процесса
 
     update.message.reply_text('Пропавшие цветы успешно учтены!')
     save_data()
@@ -216,65 +232,51 @@ def admin_command(update: Update, context: CallbackContext) -> None:
         update.message.reply_text(f'Произошла ошибка при создании отчета: {e}')
 
 ############################################## ДОБАВЛЕНИЕ ПОЛЬЗОВАТЕЛЕЙ ##########################################
-# def add_user(update: Update, context: CallbackContext) -> int:
-#     """Обработчик команды /add_user (доступно только админам)."""
-#     if update.message.chat_id not in ADMIN_CHAT_ID:
-#         update.message.reply_text('Вы не являетесь администратором. Доступ запрещен.')
-#         return ConversationHandler.END
+def load_admin_user_data():
+    # Загрузка данных из файла
+    if os.path.exists(DATA_FILE_PATH):
+        with open(DATA_FILE_PATH, 'r') as file:
+            data = json.load(file)
+    else:
+        data = {"admins": [], "users": []}
+    return data
 
-#     update.message.reply_text('Теперь введите тип пользователя (admins или users) для добавления.')
-#     context.user_data['stage'] = 1
-#     return 1
+def save_user_admin_data(data):
+    # Сохранение данных в файл
+    with open(DATA_FILE_PATH, 'w') as file:
+        json.dump(data, file, indent=2)
 
-# def handle_user(update: Update, context: CallbackContext) -> int:
-#     """Обработчик ввода типа пользователя и имени."""
-#     stage = context.user_data['stage']
-#     user_input = update.message.text.lower()
 
-#     if stage == 1:
-#         context.user_data['user_type'] = user_input
-#         update.message.reply_text(f'Теперь введите имя пользователя для добавления в категорию {user_input}.')
-#     elif stage == 0:
-#         user_type = context.user_data['user_type']
-#         chat_id = update.message.chat_id
+# Функция начала добавления пользователя
+def select_type(update: Update, context: CallbackContext) -> int:
+    update.message.reply_text("Выберите тип пользователя:\n1. Администратор\n2. Пользователь")
+    return 'SELECT_TYPE'
 
-#         # Вызываем функцию добавления пользователя в файл
-#         add_user_to_json('.', user_type, user_input, chat_id)
+# Функция добавления пользователя
+def add_user(update: Update, context: CallbackContext) -> int:
+    user_id = int(update.message.text)
+    user_type = context.user_data['user_type']
+    
+    data = load_admin_user_data()
+    
+    user_data = {"user_id": user_id, "username": update.message.from_user.username}
 
-#         # Сбрасываем ожидание данных
-#         del context.user_data['user_type']
-#         update.message.reply_text(f"Пользователь {user_input} успешно добавлен в категорию {user_type}.")
+    if user_type == "admins":
+        data["admins"].append(user_data)
+    elif user_type == "users":
+        data["users"].append(user_data)
+    
+    save_data(data)
+    update.message.reply_text(f"Пользователь с ID {user_id} успешно добавлен в список {user_type}.")
+    
+    return ConversationHandler.END
 
-#         return ConversationHandler.END
+# Функция отмены операции
+def cancel(update: Update, context: CallbackContext) -> int:
+    update.message.reply_text('Операция отменена.')
+    return ConversationHandler.END
 
-#     return stage
 
-# def add_user_to_json(file_path, user_type, name, chat_id):
-#     """Функция добавления пользователя в JSON-файл."""
-#     # Загружаем текущие данные из файла
-#     with open(file_path, 'r') as file:
-#         data = json.load(file)
-
-#     # Проверяем, существует ли ключ для данного типа пользователей
-#     if user_type not in data:
-#         data[user_type] = []
-
-#     # Проверяем, что пользователь с таким chat_id не существует
-#     if all(user['chat_id'] != chat_id for user in data[user_type]):
-#         # Добавляем нового пользователя
-#         data[user_type].append({
-#             "name": name,
-#             "chat_id": chat_id
-#         })
-
-#         # Записываем обновленные данные в файл
-#         with open(file_path, 'w') as file:
-#             json.dump(data, file, indent=2)
-
-# def cancel(update: Update, context: CallbackContext) -> int:
-#     """Обработчик команды /cancel."""
-#     update.message.reply_text('Операция отменена.')
-#     return ConversationHandler.END
 #################################################################################
 
 def main() -> None:
@@ -285,10 +287,12 @@ def main() -> None:
     conv_handler_bouquet = ConversationHandler(
         entry_points=[CommandHandler('add_bouquet', add_bouquet)],
         states={
-            'GET_BOUQUET_PRICE': [MessageHandler(Filters.text & (Filters.regex(r'^\d+(\.\d+)?$')), get_bouquet_price)],
+            # 'GET_BOUQUET_PRICE': [MessageHandler(Filters.text & (Filters.regex(r'^\d+(\.\d+)?$') ), get_bouquet_price)],
+            'GET_BOUQUET_PRICE': [MessageHandler(Filters.text & ~Filters.command, get_bouquet_price)],
             'GET_COMPOSITION': [MessageHandler(Filters.text & ~Filters.command, get_composition)],
         },
-        fallbacks=[],
+        fallbacks=[CommandHandler('cancel', cancel)],
+        name="my_conversation",
     )
 
     conv_handler_lost_flowers = ConversationHandler(
@@ -296,7 +300,8 @@ def main() -> None:
         states={
             'GET_LOST_FLOWERS': [MessageHandler(Filters.text & ~Filters.command, get_lost_flowers)],
         },
-        fallbacks=[],
+        fallbacks=[CommandHandler('cancel', cancel)],
+        name="my_conversation1",
     )
 
     # conv_handler_users = ConversationHandler(
