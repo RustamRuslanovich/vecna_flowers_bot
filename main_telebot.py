@@ -150,9 +150,10 @@ def add_lost_flowers_command(message):
 
     # Создает новый словарь пропавших цветов для текущего чата
     lost_flowers.setdefault(chat_id, {})[timestamp] = {}
-
+    
     bot.reply_to(message, 'Введите пропавшие цветы (формат: цвет1 - количество1, цвет2 - количество2):')
     bot.register_next_step_handler(message, get_lost_flowers, timestamp)
+    
 
 
 def get_lost_flowers(message, timestamp):
@@ -163,12 +164,13 @@ def get_lost_flowers(message, timestamp):
     lost_flowers_items = [item.strip() for item in lost_flowers_text.split(',')]
 
     for item in lost_flowers_items:
-        parts = item.split('-')
         try:
+            parts = item.split('-')
             flower, quantity = parts[0].strip(), parts[1].strip()
             lost_flowers.setdefault(chat_id, {}).setdefault(timestamp, {})[flower] = int(quantity)
-        except ValueError:
+        except Exception:
             bot.reply_to(message, 'Некорректный формат ввода')
+            bot.register_next_step_handler(message, get_lost_flowers, timestamp)
             return
 
     bot.reply_to(message, 'Пропавшие цветы успешно учтены!')
