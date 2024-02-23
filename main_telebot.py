@@ -79,7 +79,7 @@ def help_command(message):
         - /help: Покажет эту справку.
         - /add_bouquet: Добавит новый букет в вашу базу данных.
         - /add_lost_flowers: Зарегистрирует пропавшие цветы.
-        Тлько для администраторов
+        Только для администраторов
         - /report: Сгенерирует отчет по букетам и пропавшим цветам.
         - /add_user: Добавить нового пользователя.
         - /del_user: удалить пользователя
@@ -204,6 +204,12 @@ def generate_report() -> pd.ExcelWriter:
     """Генерирует отчет в формате Excel."""
     writer = pd.ExcelWriter(report_file, engine='xlsxwriter')
 
+    # Создадим таблицу с именами и chat_id
+    with open(admin_users_file, 'r', encoding='utf-8') as file:
+            data = json.load(file)
+
+    id_names = pd.DataFrame(data['admins'] + data['users'])
+
     # Добавляем данные о букетах в отчет
     df = pd.DataFrame(columns=['chat_id', 'date', 'price', 'Название цветка', 'Количество'])
 
@@ -220,7 +226,7 @@ def generate_report() -> pd.ExcelWriter:
             temp_df['Название цветка'] = temp_df.index
             
             # Добавляем остальные колонки
-            temp_df['chat_id'] = chat_id
+            temp_df['chat_id'] = int(chat_id)
             temp_df['date'] = bouquet_key
             temp_df['price'] = price
             
@@ -230,6 +236,9 @@ def generate_report() -> pd.ExcelWriter:
     # Сбрасываем мультииндекс для корректного отображения
     # df.reset_index(drop=True, inplace=True)
     timestamp_shortened = bouquet_key[:10]
+
+    df = df.merge(id_names, on='chat_id', how='left') # Добавим имена в отчет
+    df = df[['chat_id', 'name', 'date', 'price', 'Название цветка', 'Количество']]
     df.to_excel(writer, sheet_name=f'Bouquets_{timestamp_shortened}', index=False)
     
     # Добавляем данные о пропавших цветах в отчет
@@ -245,7 +254,7 @@ def generate_report() -> pd.ExcelWriter:
             temp_df['Название цветка'] = temp_df.index
             
             # Добавляем остальные колонки
-            temp_df['chat_id'] = chat_id
+            temp_df['chat_id'] = int(chat_id)
             temp_df['timestamp'] = timestamp
             
             # Объединяем временный DataFrame с основным
@@ -254,6 +263,9 @@ def generate_report() -> pd.ExcelWriter:
     # Сбрасываем индекс для корректного отображения
     df_lost.reset_index(drop=True, inplace=True)
     timestamp_shortened = timestamp[:10]
+
+    df_lost = df_lost.merge(id_names, on='chat_id', how='left') # Добавим имена в отчет
+    df_lost = df_lost[['chat_id', 'name', 'timestamp', 'Название цветка', 'Количество']]
     df_lost.to_excel(writer, sheet_name=f'Lost_flowers_{timestamp_shortened}', index=False, index_label=['chat_id', 'timestamp'])
 
     return writer
