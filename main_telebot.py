@@ -53,6 +53,7 @@ def require_admin(func):
 @bot.message_handler(commands=['start'])
 def start_command(message):
     """Приветствует пользователя и объясняет назначение бота."""
+    
     bot.reply_to(message, 'Привет! Этот бот для цветочного магазина. Используйте /help для справки.')
 
 
@@ -79,7 +80,7 @@ def help_command(message):
         - /add_bouquet: Добавит новый букет в вашу базу данных.
         - /add_lost_flowers: Зарегистрирует пропавшие цветы.
         Тлько для администраторов
-        - /report (только для администраторов): Сгенерирует отчет по букетам и пропавшим цветам.
+        - /report: Сгенерирует отчет по букетам и пропавшим цветам.
         - /add_user: Добавить нового пользователя.
         - /del_user: удалить пользователя
         - /users_list: Список всех админов и пользователей
@@ -107,12 +108,13 @@ def get_bouquet_price(message, bouquet_key):
     chat_id = message.chat.id
 
     try:
-        price = float(message.text)
+        msg = '''Введите состав букета в формате \nцвет1 - количество1 \nцвет2 - количество2 \nи т.д.'''
+        price = float(message.text.replace(',', '.'))
         bouquets[chat_id][bouquet_key]['price'] = price
-        bot.reply_to(message, 'Введите состав букета (формат: цвет1 - количество1, цвет2 - количество2):')
+        bot.reply_to(message, msg)
         bot.register_next_step_handler(message, get_composition, bouquet_key)
     except ValueError:
-        bot.reply_to(message, 'Пожалуйста, введите корректную стоимость в виде числа.')
+        bot.reply_to(message, 'Пожалуйста, введите корректную стоимость в виде числа')
         bot.register_next_step_handler(message, get_bouquet_price, bouquet_key)
 
 
@@ -130,17 +132,24 @@ def get_composition(message, bouquet_key):
     chat_id = message.chat.id
 
     composition_text = message.text
-    composition_items = [item.strip() for item in composition_text.split(',')]
+    composition_items = [item.strip() for item in composition_text.split('\n')]
+
+    OK_FLAG = 1
 
     for item in composition_items:
         try:
             flower, quantity = item.split('-')
             bouquets[chat_id][bouquet_key]['composition'][flower.strip()] = int(quantity)
-        except ValueError:
-            bot.reply_to(message, 'Некорректный формат ввода. Используйте формат: цвет1 - количество1, цвет2 - количество2.')
 
-    bot.reply_to(message, 'Букет успешно добавлен!')
-    save_data()
+        except ValueError:
+            OK_FLAG = 0
+            bot.reply_to(message, 'Некорректный формат ввода. Используйте формат: \nцвет1 - количество1 \nцвет2 - количество2 \nи т.д.')
+            bot.register_next_step_handler(message, get_composition, bouquet_key)
+    
+    if OK_FLAG == 1:
+        bot.reply_to(message, 'Букет успешно добавлен!')
+        save_data()
+
 
 @bot.message_handler(commands=['add_lost_flowers'])
 def add_lost_flowers_command(message):
@@ -151,7 +160,7 @@ def add_lost_flowers_command(message):
     # Создает новый словарь пропавших цветов для текущего чата
     lost_flowers.setdefault(chat_id, {})[timestamp] = {}
     
-    bot.reply_to(message, 'Введите пропавшие цветы (формат: цвет1 - количество1, цвет2 - количество2):')
+    bot.reply_to(message, 'Введите состав букета в формате \nцвет1 - количество1 \nцвет2 - количество2 \nи т.д.')
     bot.register_next_step_handler(message, get_lost_flowers, timestamp)
     
 
@@ -161,7 +170,7 @@ def get_lost_flowers(message, timestamp):
     chat_id = message.chat.id
 
     lost_flowers_text = message.text
-    lost_flowers_items = [item.strip() for item in lost_flowers_text.split(',')]
+    lost_flowers_items = [item.strip() for item in lost_flowers_text.split('\n')]
 
     for item in lost_flowers_items:
         try:
@@ -423,14 +432,17 @@ def show_users_command(message):
         None.
     """
     # Загружаем данные из JSON-файла
-    with open(admin_users_file, 'r', encoding='utf-8') as file:
-        data = json.load(file)
+    try:
+        with open(admin_users_file, 'r', encoding='utf-8') as file:
+            data = json.load(file)
 
-    admins_text = get_users_info(data["admins"])
-    users_text = get_users_info(data["users"])
+        admins_text = get_users_info(data["admins"])
+        users_text = get_users_info(data["users"])
 
-    text = f"**Администраторы:**\n{admins_text}\n\n**Пользователи:**\n{users_text}"
-    bot.reply_to(message, text, parse_mode='Markdown')
+        text = f"**Администраторы:**\n{admins_text}\n\n**Пользователи:**\n{users_text}"
+        bot.reply_to(message, text, parse_mode='Markdown')
+    except Exception as e:
+        bot.reply_to(message, f'Произошла ошибка при получении списка пользователей: {e}')
 
 
 def get_users_info(users):
@@ -452,6 +464,13 @@ def get_users_info(users):
 
     return text
 
+def main_menu(message):
+    """Отображает главное меню."""
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add('Добавить букет')
+    markup.add('Добавить пропавшие цветы')
+    markup.add('Отчет')
+    bot.reply_to(message, 'Выберите действие:', reply_markup=markup)
 
 if __name__ == "__main__":
     bot.polling(none_stop=True)
