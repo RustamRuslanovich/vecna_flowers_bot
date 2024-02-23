@@ -108,7 +108,7 @@ def get_bouquet_price(message, bouquet_key):
     chat_id = message.chat.id
 
     try:
-        msg = '''Введите состав букета в формате \nцвет1 - количество1 \nцвет2 - количество2 \nи т.д.'''
+        msg = '''Введите состав букета в формате \nцвет1 количество1 \nцвет2 количество2 \nи т.д.'''
         price = float(message.text.replace(',', '.'))
         bouquets[chat_id][bouquet_key]['price'] = price
         bot.reply_to(message, msg)
@@ -138,12 +138,12 @@ def get_composition(message, bouquet_key):
 
     for item in composition_items:
         try:
-            flower, quantity = item.split('-')
+            flower, quantity = " ".join(item.split(' ')[:-1]).strip(), item.split(' ')[-1]
             bouquets[chat_id][bouquet_key]['composition'][flower.strip()] = int(quantity)
 
         except ValueError:
             OK_FLAG = 0
-            bot.reply_to(message, 'Некорректный формат ввода. Используйте формат: \nцвет1 - количество1 \nцвет2 - количество2 \nи т.д.')
+            bot.reply_to(message, 'Некорректный формат ввода. Используйте формат: \nцвет1 количество1 \nцвет2 количество2 \nи т.д.')
             bot.register_next_step_handler(message, get_composition, bouquet_key)
     
     if OK_FLAG == 1:
@@ -160,7 +160,7 @@ def add_lost_flowers_command(message):
     # Создает новый словарь пропавших цветов для текущего чата
     lost_flowers.setdefault(chat_id, {})[timestamp] = {}
     
-    bot.reply_to(message, 'Введите состав букета в формате \nцвет1 - количество1 \nцвет2 - количество2 \nи т.д.')
+    bot.reply_to(message, 'Введите состав букета в формате \nцвет1 количество1 \nцвет2 количество2 \nи т.д.')
     bot.register_next_step_handler(message, get_lost_flowers, timestamp)
     
 
@@ -174,8 +174,9 @@ def get_lost_flowers(message, timestamp):
 
     for item in lost_flowers_items:
         try:
-            parts = item.split('-')
-            flower, quantity = parts[0].strip(), parts[1].strip()
+            flower, quantity = " ".join(item.split(' ')[:-1]).strip(), item.split(' ')[-1]
+            # parts = item.split('-')
+            # flower, quantity = parts[0].strip(), parts[1].strip()
             lost_flowers.setdefault(chat_id, {}).setdefault(timestamp, {})[flower] = int(quantity)
         except Exception:
             bot.reply_to(message, 'Некорректный формат ввода')
