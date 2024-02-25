@@ -150,6 +150,7 @@ def get_composition(message, bouquet_key):
         try:
             flower, quantity = " ".join(item.split(' ')[:-1]).strip(), item.split(' ')[-1]
             assert flower != ''
+            assert not any(char.isdigit() for char in flower)
             bouquets[chat_id][bouquet_key]['composition'][flower.strip()] = int(quantity)
             bouquets[chat_id][bouquet_key]['sold_flag'] = 0
 
@@ -188,6 +189,7 @@ def get_lost_flowers(message, timestamp):
         try:
             flower, quantity = " ".join(item.split(' ')[:-1]).strip(), item.split(' ')[-1]
             assert flower != ''
+            assert not any(char.isdigit() for char in flower)
             # parts = item.split('-')
             # flower, quantity = parts[0].strip(), parts[1].strip()
             lost_flowers.setdefault(chat_id, {}).setdefault(timestamp, {})[flower] = int(quantity)
@@ -491,96 +493,62 @@ def get_users_info(users):
         text += f"* {user['name']} ({user['chat_id']})\n"
 
     return text
+#####################################
+@bot.message_handler(commands=['sell_bouquet'])
+def get_sold_bouquet_price(message):
+    """Запрашивает у пользователя цену букета."""
+    chat_id = message.chat.id
 
-# def main_menu(message):
-#     """Отображает главное меню."""
-#     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-#     markup.add('Добавить букет')
-#     markup.add('Добавить пропавшие цветы')
-#     markup.add('Отчет')
-#     bot.reply_to(message, 'Выберите действие:', reply_markup=markup)
+    bot.send_message(chat_id, 'Введите цену букета:')
+    bot.register_next_step_handler(message, find_bouquets_by_price)
 
+def find_bouquets_by_price(message):
+    """Находит букеты с указанной ценой и выводит их список."""
+    chat_id = message.chat.id
 
-# @bot.message_handler(commands=['sell_bouquet'])
-# def sell_bouquet_command(message):
-#     """Инициирует процесс учета проданного букета."""
-#     chat_id = message.chat.id
+    try:
+        price = float(message.text.replace(',', '.'))
+        matching_bouquets = []
+        for chat_id, bouquets_info in bouquets.items():
+            for timestamp, bouquet_data in bouquets_info.items():
+                if not bouquet_data["sold_flag"] and bouquet_data["price"] == price:
+                    matching_bouquets.append((timestamp, bouquet_data))
 
-#     bot.reply_to(message, 'Введите цену проданного букета:')
-#     bot.register_next_step_handler(message, get_sold_bouquet_price)
+        if matching_bouquets:
+            display_bouquets_list(message, chat_id, matching_bouquets)
+        else:
+            bot.send_message(chat_id, f'Букетов по цене {price} руб. не найдено.')
+    except ValueError:
+        bot.send_message(chat_id, 'Пожалуйста, введите корректную цену в виде числа.')
 
+def display_bouquets_list(message, chat_id, matching_bouquets):
+    """Выводит список букетов с указанной ценой."""
+    text = 'Выберите букет:\n\n'
+    for i, (timestamp, bouquet_data) in enumerate(matching_bouquets, 1):
+        composition_str = ', '.join(f'{k}: {v}' for k, v in bouquet_data["composition"].items())
+        text += f'{i}. {bouquet_data["price"]} руб. ({timestamp})\nСостав: {composition_str}\n\n'
+    bot.send_message(chat_id, text)
+    bot.register_next_step_handler(message, select_bouquet_by_number, matching_bouquets)
 
-# def get_sold_bouquet_price(message):
-#     """Получает цену проданного букета и выводит список букетов с этой ценой."""
-#     chat_id = message.chat.id
+def select_bouquet_by_number(message, matching_bouquets):
+    """Обрабатывает выбор пользователя по номеру и помечает букет как проданный."""
+    chat_id = message.chat.id
+    try:
+        index = int(message.text)
+        if 1 <= index <= len(matching_bouquets):
+            date_time = matching_bouquets[index - 1][0]
+            for chat_id, bouquets_info in bouquets.items():
+                for timestamp, bouquet_data in bouquets_info.items():
+                    if timestamp == date_time:
+                        bouquet_data["sold_flag"] = 1
+                        with open(bouquets_file, 'w', encoding='utf-8') as f:
+                            json.dump(bouquets, f)
+                        bot.send_message(chat_id, 'Букет успешно продан!')
+        else:
+            bot.send_message(chat_id, 'Неверный номер букета. Пожалуйста, введите число от 1 до ' + str(len(matching_bouquets)))
+    except ValueError:
+        bot.send_message(chat_id, 'Пожалуйста, введите номер букета в виде числа.')
 
-#     try:
-#         sold_price = float(message.text.replace(',', '.'))
-#         matching_bouquets = find_bouquets_for_sale(sold_price)
-
-#         if matching_bouquets:
-#             display_bouquets_list(message, matching_bouquets)
-#         else:
-#             bot.reply_to(message, 'Не найдено букетов с указанной ценой.')
-
-#     except ValueError:
-#         bot.reply_to(message, 'Пожалуйста, введите корректную цену в виде числа.')
-
-
-# def find_bouquets_for_sale(sold_price):
-#     """Ищет букеты с указанной ценой и sold_flag = 0."""
-#     matching_bouquets = []
-
-#     for chat_id, bouquets_info in bouquets.items():
-#         for bouquet_key, bouquet_data in bouquets_info.items():
-#             if bouquet_data['price'] == sold_price and bouquet_data['sold_flag'] == 0:
-#                 matching_bouquets.append({
-#                     'chat_id': chat_id,
-#                     'bouquet_key': bouquet_key,
-#                     'price': sold_price,
-#                     'composition': bouquet_data['composition']
-#                 })
-
-#     return matching_bouquets
-
-
-
-# def display_bouquets_list(message, bouquets_list):
-#     """Выводит пользователю список букетов с указанной ценой."""
-#     markup = types.InlineKeyboardMarkup()
-
-#     for i, bouquet in enumerate(bouquets_list):
-#         bouquet_text = f"Букет {i + 1}\nЦена: {bouquet['price']}"
-
-#         composition_text = "\n".join([f"{flower}: {quantity}" for flower, quantity in bouquet['composition'].items()])
-#         bouquet_text += f"\nСостав:\n{composition_text}"
-
-#         button = types.InlineKeyboardButton(text=f"Выбрать букет {i + 1}", callback_data=f"sell_{i + 1}")
-#         markup.add(button)
-
-#         bot.send_message(message.chat.id, bouquet_text, reply_markup=markup)
-
-
-# @bot.callback_query_handler(func=lambda call: call.data.startswith('sell_'))
-# def handle_sell_bouquet_callback(call):
-#     """Обрабатывает нажатие на кнопку выбора букета для продажи."""
-#     chat_id = call.message.chat.id
-#     index = int(call.data.split('_')[1]) - 1
-
-#     sold_price = float(message.text.replace(',', '.'))
-#     matching_bouquets = find_bouquets_for_sale(sold_price, chat_id)
-#     if 0 <= index < len(matching_bouquets):
-#         sell_bouquet(chat_id, matching_bouquets[index])
-
-
-# def sell_bouquet(chat_id, selected_bouquet):
-#     """Проставляет sold_flag = 1 для выбранного букета."""
-#     bouquet_key = selected_bouquet['bouquet_key']
-
-#     bouquets[chat_id][bouquet_key]['sold_flag'] = 1
-#     save_data()
-
-#     bot.send_message(chat_id, 'Букет успешно отмечен как проданный.')
 
 if __name__ == "__main__":
     bot.polling(none_stop=True)
