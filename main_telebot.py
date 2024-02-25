@@ -56,8 +56,12 @@ def require_admin(func):
 
 @bot.message_handler(commands=['start'])
 def start_command(message):
-    """Приветствует пользователя и объясняет назначение бота."""
-    
+    # """Приветствует пользователя и объясняет назначение бота."""
+    # markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    # markup.add('Добавить букет')
+    # markup.add('Добавить пропавшие цветы')
+    # markup.add('Отчет')
+    # bot.reply_to(message, 'Выберите действие:', reply_markup=markup)
     bot.reply_to(message, 'Привет! Этот бот для цветочного магазина. Используйте /help для справки.')
 
 
@@ -72,6 +76,7 @@ def help_command(message):
         - /help: Покажет эту справку.
         - /add_bouquet: Добавит новый букет в вашу базу данных.
         - /add_lost_flowers: Зарегистрирует пропавшие цветы.
+        - /sell_bouquet: Учтет проданный букет
 
         Пожалуйста, вводите команды в точности так, как они указаны.
         """
@@ -83,6 +88,7 @@ def help_command(message):
         - /help: Покажет эту справку.
         - /add_bouquet: Добавит новый букет в вашу базу данных.
         - /add_lost_flowers: Зарегистрирует пропавшие цветы.
+        - /sell_bouquet: Учтет проданный букет
         Только для администраторов
         - /report: Сгенерирует отчет по букетам и пропавшим цветам.
         - /add_user: Добавить нового пользователя.
@@ -143,12 +149,13 @@ def get_composition(message, bouquet_key):
     for item in composition_items:
         try:
             flower, quantity = " ".join(item.split(' ')[:-1]).strip(), item.split(' ')[-1]
+            assert flower != ''
             bouquets[chat_id][bouquet_key]['composition'][flower.strip()] = int(quantity)
             bouquets[chat_id][bouquet_key]['sold_flag'] = 0
 
-        except ValueError:
+        except Exception:
             OK_FLAG = 0
-            bot.reply_to(message, 'Некорректный формат ввода. Используйте формат: \nцвет1 количество1 \nцвет2 количество2 \nи т.д.')
+            bot.reply_to(message, 'Некорректный формат ввода. \nИспользуйте формат: \nцвет1 количество1 \nцвет2 количество2 \nи т.д.')
             bot.register_next_step_handler(message, get_composition, bouquet_key)
     
     if OK_FLAG == 1:
@@ -180,11 +187,12 @@ def get_lost_flowers(message, timestamp):
     for item in lost_flowers_items:
         try:
             flower, quantity = " ".join(item.split(' ')[:-1]).strip(), item.split(' ')[-1]
+            assert flower != ''
             # parts = item.split('-')
             # flower, quantity = parts[0].strip(), parts[1].strip()
             lost_flowers.setdefault(chat_id, {}).setdefault(timestamp, {})[flower] = int(quantity)
         except Exception:
-            bot.reply_to(message, 'Некорректный формат ввода')
+            bot.reply_to(message, '''Некорректный формат ввода \nИспользуйте формат: \nцвет1 количество1 \nцвет2 количество2 \nи т.д.''')
             bot.register_next_step_handler(message, get_lost_flowers, timestamp)
             return
 
@@ -484,13 +492,95 @@ def get_users_info(users):
 
     return text
 
-def main_menu(message):
-    """Отображает главное меню."""
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add('Добавить букет')
-    markup.add('Добавить пропавшие цветы')
-    markup.add('Отчет')
-    bot.reply_to(message, 'Выберите действие:', reply_markup=markup)
+# def main_menu(message):
+#     """Отображает главное меню."""
+#     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+#     markup.add('Добавить букет')
+#     markup.add('Добавить пропавшие цветы')
+#     markup.add('Отчет')
+#     bot.reply_to(message, 'Выберите действие:', reply_markup=markup)
+
+
+# @bot.message_handler(commands=['sell_bouquet'])
+# def sell_bouquet_command(message):
+#     """Инициирует процесс учета проданного букета."""
+#     chat_id = message.chat.id
+
+#     bot.reply_to(message, 'Введите цену проданного букета:')
+#     bot.register_next_step_handler(message, get_sold_bouquet_price)
+
+
+# def get_sold_bouquet_price(message):
+#     """Получает цену проданного букета и выводит список букетов с этой ценой."""
+#     chat_id = message.chat.id
+
+#     try:
+#         sold_price = float(message.text.replace(',', '.'))
+#         matching_bouquets = find_bouquets_for_sale(sold_price)
+
+#         if matching_bouquets:
+#             display_bouquets_list(message, matching_bouquets)
+#         else:
+#             bot.reply_to(message, 'Не найдено букетов с указанной ценой.')
+
+#     except ValueError:
+#         bot.reply_to(message, 'Пожалуйста, введите корректную цену в виде числа.')
+
+
+# def find_bouquets_for_sale(sold_price):
+#     """Ищет букеты с указанной ценой и sold_flag = 0."""
+#     matching_bouquets = []
+
+#     for chat_id, bouquets_info in bouquets.items():
+#         for bouquet_key, bouquet_data in bouquets_info.items():
+#             if bouquet_data['price'] == sold_price and bouquet_data['sold_flag'] == 0:
+#                 matching_bouquets.append({
+#                     'chat_id': chat_id,
+#                     'bouquet_key': bouquet_key,
+#                     'price': sold_price,
+#                     'composition': bouquet_data['composition']
+#                 })
+
+#     return matching_bouquets
+
+
+
+# def display_bouquets_list(message, bouquets_list):
+#     """Выводит пользователю список букетов с указанной ценой."""
+#     markup = types.InlineKeyboardMarkup()
+
+#     for i, bouquet in enumerate(bouquets_list):
+#         bouquet_text = f"Букет {i + 1}\nЦена: {bouquet['price']}"
+
+#         composition_text = "\n".join([f"{flower}: {quantity}" for flower, quantity in bouquet['composition'].items()])
+#         bouquet_text += f"\nСостав:\n{composition_text}"
+
+#         button = types.InlineKeyboardButton(text=f"Выбрать букет {i + 1}", callback_data=f"sell_{i + 1}")
+#         markup.add(button)
+
+#         bot.send_message(message.chat.id, bouquet_text, reply_markup=markup)
+
+
+# @bot.callback_query_handler(func=lambda call: call.data.startswith('sell_'))
+# def handle_sell_bouquet_callback(call):
+#     """Обрабатывает нажатие на кнопку выбора букета для продажи."""
+#     chat_id = call.message.chat.id
+#     index = int(call.data.split('_')[1]) - 1
+
+#     sold_price = float(message.text.replace(',', '.'))
+#     matching_bouquets = find_bouquets_for_sale(sold_price, chat_id)
+#     if 0 <= index < len(matching_bouquets):
+#         sell_bouquet(chat_id, matching_bouquets[index])
+
+
+# def sell_bouquet(chat_id, selected_bouquet):
+#     """Проставляет sold_flag = 1 для выбранного букета."""
+#     bouquet_key = selected_bouquet['bouquet_key']
+
+#     bouquets[chat_id][bouquet_key]['sold_flag'] = 1
+#     save_data()
+
+#     bot.send_message(chat_id, 'Букет успешно отмечен как проданный.')
 
 if __name__ == "__main__":
     bot.polling(none_stop=True)
