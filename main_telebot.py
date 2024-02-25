@@ -16,7 +16,11 @@ lost_flowers_file = './data/lost_flowers.json'
 report_file = './data/report.xlsx'
 admin_users_file = './data/admin_users.json'
 
-ADMIN_CHAT_ID = [int(admin_id) for admin_id in config('ADMIN_CHAT_ID').split(',')]
+# Загружаем список ID администраторов
+with open(admin_users_file, 'r', encoding='utf-8') as file:
+    admin_users = json.load(file)
+
+ADMIN_CHAT_ID = [int(admin['chat_id']) for admin in admin_users['admins']]
 
 # Проверка и создание файлов, если они отсутствуют
 try:
@@ -94,7 +98,7 @@ def help_command(message):
 def add_bouquet_command(message):
     """Инициирует процесс добавления нового букета."""
     chat_id = message.chat.id
-    bouquet_key = datetime.now().isoformat()
+    bouquet_key = datetime.now().isoformat() ## Пока только время
 
     # Создает новый словарь букета для текущего чата
     bouquets.setdefault(chat_id, {})[bouquet_key] = {'price': 0, 'composition': {}}
@@ -140,6 +144,7 @@ def get_composition(message, bouquet_key):
         try:
             flower, quantity = " ".join(item.split(' ')[:-1]).strip(), item.split(' ')[-1]
             bouquets[chat_id][bouquet_key]['composition'][flower.strip()] = int(quantity)
+            bouquets[chat_id][bouquet_key]['sold_flag'] = 0
 
         except ValueError:
             OK_FLAG = 0
@@ -211,14 +216,15 @@ def generate_report() -> pd.ExcelWriter:
     id_names = pd.DataFrame(data['admins'] + data['users'])
 
     # Добавляем данные о букетах в отчет
-    df = pd.DataFrame(columns=['chat_id', 'date', 'price', 'Название цветка', 'Количество'])
+    df = pd.DataFrame(columns=['chat_id', 'date', 'price', 'Название цветка', 'Количество', 'sold_flag'])
 
     # Проходим по данным и добавляем строки в DataFrame
     for chat_id, bouquets_info in bouquets.items():
         for bouquet_key, bouquet_data in bouquets_info.items():
             price = bouquet_data['price']
             composition = bouquet_data['composition']
-            
+            sold_flag = bouquet_data['sold_flag']
+
             # Создаем временный DataFrame для composition
             temp_df = pd.DataFrame.from_dict(composition, orient='index', columns=['Количество'])
             
@@ -229,6 +235,7 @@ def generate_report() -> pd.ExcelWriter:
             temp_df['chat_id'] = int(chat_id)
             temp_df['date'] = bouquet_key
             temp_df['price'] = price
+            temp_df['sold_flag'] = sold_flag
             
             # Объединяем временный DataFrame с основным
             df = pd.concat([df, temp_df])
@@ -238,7 +245,7 @@ def generate_report() -> pd.ExcelWriter:
     timestamp_shortened = bouquet_key[:10]
 
     df = df.merge(id_names, on='chat_id', how='left') # Добавим имена в отчет
-    df = df[['chat_id', 'name', 'date', 'price', 'Название цветка', 'Количество']]
+    df = df[['chat_id', 'name', 'date', 'price', 'Название цветка', 'Количество', 'sold_flag']]
     df.to_excel(writer, sheet_name=f'Bouquets_{timestamp_shortened}', index=False)
     
     # Добавляем данные о пропавших цветах в отчет
