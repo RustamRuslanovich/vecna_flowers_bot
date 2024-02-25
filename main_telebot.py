@@ -62,6 +62,8 @@ def start_command(message):
     # markup.add('Добавить пропавшие цветы')
     # markup.add('Отчет')
     # bot.reply_to(message, 'Выберите действие:', reply_markup=markup)
+    # a = telebot.types.ReplyKeyboardRemove()
+    # bot.send_message(message.from_user.id, 'Что', reply_markup=a)
     bot.reply_to(message, 'Привет! Этот бот для цветочного магазина. Используйте /help для справки.')
 
 
@@ -153,6 +155,7 @@ def get_composition(message, bouquet_key):
             assert not any(char.isdigit() for char in flower)
             bouquets[chat_id][bouquet_key]['composition'][flower.strip()] = int(quantity)
             bouquets[chat_id][bouquet_key]['sold_flag'] = 0
+            bouquets[chat_id][bouquet_key]['seller_id'] = ''
 
         except Exception:
             OK_FLAG = 0
@@ -226,7 +229,7 @@ def generate_report() -> pd.ExcelWriter:
     id_names = pd.DataFrame(data['admins'] + data['users'])
 
     # Добавляем данные о букетах в отчет
-    df = pd.DataFrame(columns=['chat_id', 'date', 'price', 'Название цветка', 'Количество', 'sold_flag'])
+    df = pd.DataFrame(columns=['chat_id', 'date', 'price', 'Название цветка', 'Количество', 'sold_flag', 'seller_id'])
 
     # Проходим по данным и добавляем строки в DataFrame
     for chat_id, bouquets_info in bouquets.items():
@@ -234,7 +237,7 @@ def generate_report() -> pd.ExcelWriter:
             price = bouquet_data['price']
             composition = bouquet_data['composition']
             sold_flag = bouquet_data['sold_flag']
-
+            seller_id = bouquet_data['seller_id']
             # Создаем временный DataFrame для composition
             temp_df = pd.DataFrame.from_dict(composition, orient='index', columns=['Количество'])
             
@@ -242,10 +245,11 @@ def generate_report() -> pd.ExcelWriter:
             temp_df['Название цветка'] = temp_df.index
             
             # Добавляем остальные колонки
-            temp_df['chat_id'] = int(chat_id)
+            temp_df['chat_id'] = chat_id
             temp_df['date'] = bouquet_key
             temp_df['price'] = price
             temp_df['sold_flag'] = sold_flag
+            temp_df['seller_id'] = seller_id
             
             # Объединяем временный DataFrame с основным
             df = pd.concat([df, temp_df])
@@ -255,7 +259,10 @@ def generate_report() -> pd.ExcelWriter:
     timestamp_shortened = bouquet_key[:10]
 
     df = df.merge(id_names, on='chat_id', how='left') # Добавим имена в отчет
-    df = df[['chat_id', 'name', 'date', 'price', 'Название цветка', 'Количество', 'sold_flag']]
+    df = df.merge(id_names.rename(columns={'name': 'seller_name'}), left_on='seller_id',
+                   right_on='chat_id', how='left', suffixes=('', '_')).drop(['chat_id_'], axis=1)
+    df = df[['chat_id', 'name', 'date', 'price', 'Название цветка', 
+             'Количество', 'sold_flag', 'seller_id', 'seller_name']]
     df.to_excel(writer, sheet_name=f'Bouquets_{timestamp_shortened}', index=False)
     
     # Добавляем данные о пропавших цветах в отчет
@@ -332,7 +339,7 @@ def process_user_id(message, role):
         None.
     """
     role = role
-    user_id = int(message.text)
+    user_id = message.text
 
     bot.reply_to(message, 'Введите имя пользователя:')
     bot.register_next_step_handler(message, process_admin_user_file, role, user_id)
@@ -493,6 +500,7 @@ def get_users_info(users):
         text += f"* {user['name']} ({user['chat_id']})\n"
 
     return text
+
 #####################################
 @bot.message_handler(commands=['sell_bouquet'])
 def get_sold_bouquet_price(message):
@@ -515,37 +523,46 @@ def find_bouquets_by_price(message):
                     matching_bouquets.append((timestamp, bouquet_data))
 
         if matching_bouquets:
-            display_bouquets_list(message, chat_id, matching_bouquets)
+            display_bouquets_list(chat_id, matching_bouquets)
+
         else:
             bot.send_message(chat_id, f'Букетов по цене {price} руб. не найдено.')
     except ValueError:
         bot.send_message(chat_id, 'Пожалуйста, введите корректную цену в виде числа.')
 
-def display_bouquets_list(message, chat_id, matching_bouquets):
+def display_bouquets_list(chat_id, matching_bouquets):
     """Выводит список букетов с указанной ценой."""
+    keyboard = types.InlineKeyboardMarkup()
     text = 'Выберите букет:\n\n'
+    
     for i, (timestamp, bouquet_data) in enumerate(matching_bouquets, 1):
         composition_str = ', '.join(f'{k}: {v}' for k, v in bouquet_data["composition"].items())
         text += f'{i}. {bouquet_data["price"]} руб. ({timestamp})\nСостав: {composition_str}\n\n'
-    bot.send_message(chat_id, text)
-    bot.register_next_step_handler(message, select_bouquet_by_number, matching_bouquets)
 
-def select_bouquet_by_number(message, matching_bouquets):
+        # callback_data = str(matching_bouquets[i-1][0])
+        callback_data = json.dumps((chat_id, matching_bouquets[i-1][0]))
+        keyboard.add(types.InlineKeyboardButton(i, callback_data=callback_data))
+
+    bot.send_message(chat_id, text, reply_markup=keyboard)
+
+
+@bot.callback_query_handler(func=lambda call: call.data)
+def select_bouquet_by_number(call):
     """Обрабатывает выбор пользователя по номеру и помечает букет как проданный."""
-    chat_id = message.chat.id
+    # chat_id = message.chat.id
+    # match = json.loads(call.data)
+    seller_chat_id = json.loads(call.data)[0]
+    date_time = json.loads(call.data)[1]
+
     try:
-        index = int(message.text)
-        if 1 <= index <= len(matching_bouquets):
-            date_time = matching_bouquets[index - 1][0]
-            for chat_id, bouquets_info in bouquets.items():
-                for timestamp, bouquet_data in bouquets_info.items():
-                    if timestamp == date_time:
-                        bouquet_data["sold_flag"] = 1
-                        with open(bouquets_file, 'w', encoding='utf-8') as f:
-                            json.dump(bouquets, f)
-                        bot.send_message(chat_id, 'Букет успешно продан!')
-        else:
-            bot.send_message(chat_id, 'Неверный номер букета. Пожалуйста, введите число от 1 до ' + str(len(matching_bouquets)))
+        for chat_id, bouquets_info in bouquets.items():
+            for timestamp, bouquet_data in bouquets_info.items():
+                if timestamp == date_time:
+                    bouquet_data["sold_flag"] = 1
+                    bouquet_data['seller_id'] = str(seller_chat_id)
+                    with open(bouquets_file, 'w', encoding='utf-8') as f:
+                        json.dump(bouquets, f, ensure_ascii=False)
+                    bot.send_message(chat_id, 'Букет успешно продан!')
     except ValueError:
         bot.send_message(chat_id, 'Пожалуйста, введите номер букета в виде числа.')
 
