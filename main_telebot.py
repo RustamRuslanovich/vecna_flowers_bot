@@ -22,7 +22,7 @@ with open(admin_users_file, 'r', encoding='utf-8') as file:
 
 ADMIN_CHAT_ID = [int(admin['chat_id']) for admin in admin_users['admins']]
 
-# Проверка и создание файлов, если они отсутствуют
+    # Проверка и создание файлов, если они отсутствуют
 try:
     with open(bouquets_file, 'r', encoding='utf-8') as file:
         bouquets = json.load(file)
@@ -34,15 +34,15 @@ try:
         lost_flowers = json.load(file)
 except FileNotFoundError:
     lost_flowers = {}
-
-
-def save_data():
+        
+def save_bouquet_data():
     """Сохраняет данные в JSON-файлы."""
     with open(bouquets_file, 'w', encoding='utf-8') as file:
         json.dump(bouquets, file, ensure_ascii=False)
+        
+def save_lost_flower_data():
     with open(lost_flowers_file, 'w', encoding='utf-8') as file:
         json.dump(lost_flowers, file, ensure_ascii=False)
-
 
 def require_admin(func):
     """Декоратор для ограничения доступа к команде администраторам."""
@@ -164,7 +164,7 @@ def get_composition(message, bouquet_key):
     
     if OK_FLAG == 1:
         bot.reply_to(message, 'Букет успешно добавлен!')
-        save_data()
+        save_bouquet_data()
 
 
 @bot.message_handler(commands=['add_lost_flowers'])
@@ -202,7 +202,7 @@ def get_lost_flowers(message, timestamp):
             return
 
     bot.reply_to(message, 'Пропавшие цветы успешно учтены!')
-    save_data()
+    save_lost_flower_data()
 
 
 @bot.message_handler(commands=['report'])
@@ -229,70 +229,77 @@ def generate_report() -> pd.ExcelWriter:
     id_names = pd.DataFrame(data['admins'] + data['users'])
 
     # Добавляем данные о букетах в отчет
-    df = pd.DataFrame(columns=['chat_id', 'date', 'price', 'Название цветка', 'Количество', 'sold_flag', 'seller_id'])
+    if bouquets:    
+        df = pd.DataFrame(columns=['chat_id', 'date', 'price', 'Название цветка', 'Количество', 'sold_flag', 'seller_id'])
+        
+        # Проходим по данным и добавляем строки в DataFrame
+        for chat_id, bouquets_info in bouquets.items():
+            for bouquet_key, bouquet_data in bouquets_info.items():
+                    price = bouquet_data['price']
+                    composition = bouquet_data['composition']
+                    sold_flag = bouquet_data['sold_flag']
+                    seller_id = bouquet_data['seller_id']
+                    # Создаем временный DataFrame для composition
+                    temp_df = pd.DataFrame.from_dict(composition, orient='index', columns=['Количество'])
+                    
+                    # Добавляем колонку "Название цветка"
+                    temp_df['Название цветка'] = temp_df.index
+                    
+                    # Добавляем остальные колонки
+                    temp_df['chat_id'] = chat_id
+                    temp_df['date'] = bouquet_key
+                    temp_df['price'] = price
+                    temp_df['sold_flag'] = sold_flag
+                    temp_df['seller_id'] = seller_id
+                    
+                    # Объединяем временный DataFrame с основным
+                    df = pd.concat([df, temp_df])
 
-    # Проходим по данным и добавляем строки в DataFrame
-    for chat_id, bouquets_info in bouquets.items():
-        for bouquet_key, bouquet_data in bouquets_info.items():
-            price = bouquet_data['price']
-            composition = bouquet_data['composition']
-            sold_flag = bouquet_data['sold_flag']
-            seller_id = bouquet_data['seller_id']
-            # Создаем временный DataFrame для composition
-            temp_df = pd.DataFrame.from_dict(composition, orient='index', columns=['Количество'])
-            
-            # Добавляем колонку "Название цветка"
-            temp_df['Название цветка'] = temp_df.index
-            
-            # Добавляем остальные колонки
-            temp_df['chat_id'] = chat_id
-            temp_df['date'] = bouquet_key
-            temp_df['price'] = price
-            temp_df['sold_flag'] = sold_flag
-            temp_df['seller_id'] = seller_id
-            
-            # Объединяем временный DataFrame с основным
-            df = pd.concat([df, temp_df])
+            # Сбрасываем мультииндекс для корректного отображения
+            # df.reset_index(drop=True, inplace=True)
+            timestamp_shortened = bouquet_key[:10]
 
-    # Сбрасываем мультииндекс для корректного отображения
-    # df.reset_index(drop=True, inplace=True)
-    timestamp_shortened = bouquet_key[:10]
+            df = df.merge(id_names, on='chat_id', how='left') # Добавим имена в отчет
+            df = df.merge(id_names.rename(columns={'name': 'seller_name'}), left_on='seller_id',
+                        right_on='chat_id', how='left', suffixes=('', '_')).drop(['chat_id_'], axis=1)
+            df = df[['chat_id', 'name', 'date', 'price', 'Название цветка', 
+                    'Количество', 'sold_flag', 'seller_id', 'seller_name']]
+            df.to_excel(writer, sheet_name=f'Bouquets_{timestamp_shortened}', index=False)
+    else:
+        pass
 
-    df = df.merge(id_names, on='chat_id', how='left') # Добавим имена в отчет
-    df = df.merge(id_names.rename(columns={'name': 'seller_name'}), left_on='seller_id',
-                   right_on='chat_id', how='left', suffixes=('', '_')).drop(['chat_id_'], axis=1)
-    df = df[['chat_id', 'name', 'date', 'price', 'Название цветка', 
-             'Количество', 'sold_flag', 'seller_id', 'seller_name']]
-    df.to_excel(writer, sheet_name=f'Bouquets_{timestamp_shortened}', index=False)
-    
     # Добавляем данные о пропавших цветах в отчет
-    df_lost = pd.DataFrame(columns=['chat_id', 'timestamp', 'Название цветка', 'Количество'])
+    if lost_flowers:
+        df_lost = pd.DataFrame(columns=['chat_id', 'timestamp', 'Название цветка', 'Количество'])
 
-    # Проходим по данным и добавляем строки в DataFrame
-    for chat_id, timestamps_info in lost_flowers.items():
-        for timestamp, flowers_info in timestamps_info.items():
-            # Создаем временный DataFrame для цветов
-            temp_df = pd.DataFrame.from_dict(flowers_info, orient='index', columns=['Количество'])
-            
-            # Добавляем колонку "Название цветка"
-            temp_df['Название цветка'] = temp_df.index
-            
-            # Добавляем остальные колонки
-            temp_df['chat_id'] = int(chat_id)
-            temp_df['timestamp'] = timestamp
-            
-            # Объединяем временный DataFrame с основным
-            df_lost = pd.concat([df_lost, temp_df])
+        # Проходим по данным и добавляем строки в DataFrame
+        for chat_id, timestamps_info in lost_flowers.items():
+            for timestamp, flowers_info in timestamps_info.items():
+                # Создаем временный DataFrame для цветов
+                temp_df = pd.DataFrame.from_dict(flowers_info, orient='index', columns=['Количество'])
+                
+                # Добавляем колонку "Название цветка"
+                temp_df['Название цветка'] = temp_df.index
+                
+                # Добавляем остальные колонки
+                temp_df['chat_id'] = int(chat_id)
+                temp_df['timestamp'] = timestamp
+                
+                # Объединяем временный DataFrame с основным
+                df_lost = pd.concat([df_lost, temp_df])
 
-    # Сбрасываем индекс для корректного отображения
-    df_lost.reset_index(drop=True, inplace=True)
-    timestamp_shortened = timestamp[:10]
+        # Сбрасываем индекс для корректного отображения
+        df_lost.reset_index(drop=True, inplace=True)
+        timestamp_shortened = timestamp[:10]
 
-    df_lost = df_lost.merge(id_names, on='chat_id', how='left') # Добавим имена в отчет
-    df_lost = df_lost[['chat_id', 'name', 'timestamp', 'Название цветка', 'Количество']]
-    df_lost.to_excel(writer, sheet_name=f'Lost_flowers_{timestamp_shortened}', index=False, index_label=['chat_id', 'timestamp'])
-
+        df_lost = df_lost.merge(id_names, on='chat_id', how='left') # Добавим имена в отчет
+        df_lost = df_lost[['chat_id', 'name', 'timestamp', 'Название цветка', 'Количество']]
+        df_lost.to_excel(writer, sheet_name=f'Lost_flowers_{timestamp_shortened}', index=False, index_label=['chat_id', 'timestamp'])
+    else:
+        pass
+        
     return writer
+
 ######################################
 @bot.message_handler(commands=['add_user'])
 @require_admin
@@ -568,4 +575,5 @@ def select_bouquet_by_number(call):
 
 
 if __name__ == "__main__":
+
     bot.polling(none_stop=True)
