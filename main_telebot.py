@@ -6,43 +6,56 @@ import telebot
 from telebot import types
 from decouple import config
 from openpyxl import Workbook
+from functools import partial
+from typing import Dict, Any
+import logging
 
-
+# Константы
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, 'data')
+BOUQUETS_FILE = os.path.join(DATA_DIR, 'bouquets.json')
+LOST_FLOWERS_FILE = os.path.join(DATA_DIR, 'lost_flowers.json')
+REPORT_FILE = os.path.join(DATA_DIR, 'report.xlsx')
+ADMIN_USERS_FILE = os.path.join(DATA_DIR, 'admin_users.json')
 TOKEN = config('TELEGRAM_BOT_TOKEN')
+
+# Настройка логгера
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler = logging.FileHandler(os.path.join(BASE_DIR, 'bot.log'), encoding='utf-8', mode='w')
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
+
+# Инициализация бота
 bot = telebot.TeleBot(TOKEN)
 
-bouquets_file = './data/bouquets.json'
-lost_flowers_file = './data/lost_flowers.json'
-report_file = './data/report.xlsx'
-admin_users_file = './data/admin_users.json'
+class DataHandler:
+    def __init__(self, file_path: str):
+        self.file_path = file_path
 
-# Загружаем список ID администраторов
-with open(admin_users_file, 'r', encoding='utf-8') as file:
-    admin_users = json.load(file)
+    def load(self) -> Dict[str, Any]:
+        try:
+            with open(self.file_path, 'r', encoding='utf-8') as file:
+                return json.load(file)
+        except FileNotFoundError:
+            return {}
 
+    def save(self, data: Dict[str, Any]) -> None:
+        with open(self.file_path, 'w', encoding='utf-8') as file:
+            json.dump(data, file, ensure_ascii=False, indent=4)
+
+# Инициализация обработчиков данных
+bouquets_handler = DataHandler(BOUQUETS_FILE)
+lost_flowers_handler = DataHandler(LOST_FLOWERS_FILE)
+admin_users_handler = DataHandler(ADMIN_USERS_FILE)
+
+# Загрузка данных
+bouquets = bouquets_handler.load()
+lost_flowers = lost_flowers_handler.load()
+admin_users = admin_users_handler.load()
 ADMIN_CHAT_ID = [int(admin['chat_id']) for admin in admin_users['admins']]
-
-    # Проверка и создание файлов, если они отсутствуют
-try:
-    with open(bouquets_file, 'r', encoding='utf-8') as file:
-        bouquets = json.load(file)
-except FileNotFoundError:
-    bouquets = {}
-
-try:
-    with open(lost_flowers_file, 'r', encoding='utf-8') as file:
-        lost_flowers = json.load(file)
-except FileNotFoundError:
-    lost_flowers = {}
-        
-def save_bouquet_data():
-    """Сохраняет данные в JSON-файлы."""
-    with open(bouquets_file, 'w', encoding='utf-8') as file:
-        json.dump(bouquets, file, ensure_ascii=False)
-        
-def save_lost_flower_data():
-    with open(lost_flowers_file, 'w', encoding='utf-8') as file:
-        json.dump(lost_flowers, file, ensure_ascii=False)
+USER_CHAT_ID = [int(user['chat_id']) for user in admin_users['users']]
 
 def require_admin(func):
     """Декоратор для ограничения доступа к команде администраторам."""
@@ -53,8 +66,18 @@ def require_admin(func):
         return func(message, *args, **kwargs)
     return wrapper
 
+def require_user(func):
+    """Декоратор для ограничения доступа к команде администраторам."""
+    def wrapper(message, *args, **kwargs):
+        if message.chat.id not in USER_CHAT_ID + ADMIN_CHAT_ID:
+            bot.reply_to(message, 'У вас нет прав доступа к этой команде.')
+            return
+        return func(message, *args, **kwargs)
+    return wrapper
+
 
 @bot.message_handler(commands=['start'])
+@require_user
 def start_command(message):
     # """Приветствует пользователя и объясняет назначение бота."""
     # markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -68,6 +91,7 @@ def start_command(message):
 
 
 @bot.message_handler(commands=['help'])
+@require_user
 def help_command(message):
     """Предоставляет информацию о командах бота."""
     if message.chat.id not in ADMIN_CHAT_ID:
@@ -103,6 +127,7 @@ def help_command(message):
 
 
 @bot.message_handler(commands=['add_bouquet'])
+@require_user
 def add_bouquet_command(message):
     """Инициирует процесс добавления нового букета."""
     chat_id = message.chat.id
@@ -146,7 +171,7 @@ def get_composition(message, bouquet_key):
     composition_text = message.text
     composition_items = [item.strip() for item in composition_text.split('\n')]
 
-    OK_FLAG = 1
+    is_valid_composition = True
 
     for item in composition_items:
         try:
@@ -158,16 +183,17 @@ def get_composition(message, bouquet_key):
             bouquets[chat_id][bouquet_key]['seller_id'] = ''
 
         except Exception:
-            OK_FLAG = 0
+            is_valid_composition = False
             bot.reply_to(message, 'Некорректный формат ввода. \nИспользуйте формат: \nцвет1 количество1 \nцвет2 количество2 \nи т.д.')
             bot.register_next_step_handler(message, get_composition, bouquet_key)
     
-    if OK_FLAG == 1:
+    if is_valid_composition:
         bot.reply_to(message, 'Букет успешно добавлен!')
-        save_bouquet_data()
+        bouquets_handler.save(bouquets)
 
 
 @bot.message_handler(commands=['add_lost_flowers'])
+@require_user
 def add_lost_flowers_command(message):
     """Инициирует процесс добавления информации о пропавших цветах."""
     chat_id = message.chat.id
@@ -202,7 +228,7 @@ def get_lost_flowers(message, timestamp):
             return
 
     bot.reply_to(message, 'Пропавшие цветы успешно учтены!')
-    save_lost_flower_data()
+    lost_flowers_handler.save(lost_flowers)
 
 
 @bot.message_handler(commands=['report'])
@@ -212,7 +238,7 @@ def report_command(message):
     try:
         writer = generate_report()
         writer.save()
-        with open(report_file, 'rb') as file:
+        with open(REPORT_FILE, 'rb') as file:
             bot.send_document(message.chat.id, file, caption='Отчет по букетам и пропавшим цветам')
     except Exception as e:
         bot.reply_to(message, f'Произошла ошибка при создании отчета: {e}')
@@ -220,11 +246,10 @@ def report_command(message):
 
 def generate_report() -> pd.ExcelWriter:
     """Генерирует отчет в формате Excel."""
-    writer = pd.ExcelWriter(report_file, engine='xlsxwriter')
+    writer = pd.ExcelWriter(REPORT_FILE, engine='xlsxwriter')
 
     # Создадим таблицу с именами и chat_id
-    with open(admin_users_file, 'r', encoding='utf-8') as file:
-            data = json.load(file)
+    data = admin_users_handler.load()
 
     id_names = pd.DataFrame(data['admins'] + data['users'])
 
@@ -233,7 +258,7 @@ def generate_report() -> pd.ExcelWriter:
         df = pd.DataFrame(columns=['chat_id', 'date', 'price', 'Название цветка', 'Количество', 'sold_flag', 'seller_id'])
         
         # Проходим по данным и добавляем строки в DataFrame
-        for chat_id, bouquets_info in bouquets.items():
+        for chat_id_key, bouquets_info in bouquets.items():
             for bouquet_key, bouquet_data in bouquets_info.items():
                     price = bouquet_data['price']
                     composition = bouquet_data['composition']
@@ -246,7 +271,7 @@ def generate_report() -> pd.ExcelWriter:
                     temp_df['Название цветка'] = temp_df.index
                     
                     # Добавляем остальные колонки
-                    temp_df['chat_id'] = chat_id
+                    temp_df['chat_id'] = chat_id_key
                     temp_df['date'] = bouquet_key
                     temp_df['price'] = price
                     temp_df['sold_flag'] = sold_flag
@@ -255,16 +280,20 @@ def generate_report() -> pd.ExcelWriter:
                     # Объединяем временный DataFrame с основным
                     df = pd.concat([df, temp_df])
 
-            # Сбрасываем мультииндекс для корректного отображения
-            # df.reset_index(drop=True, inplace=True)
-            timestamp_shortened = bouquet_key[:10]
+        # Сбрасываем мультииндекс для корректного отображения
+        # df.reset_index(drop=True, inplace=True)
+        timestamp_shortened = bouquet_key[:10]
+        
+        df = df.merge(id_names, on='chat_id', how='left') # Добавим имена в отчет
+        
+        id_names_ = id_names.rename({'name': 'seller_name'}, axis=1)
+        
+        df = df.merge(id_names_, left_on='seller_id',
+                    right_on='chat_id', how='left', suffixes=('', '_')).drop(['chat_id_'], axis=1)
 
-            df = df.merge(id_names, on='chat_id', how='left') # Добавим имена в отчет
-            df = df.merge(id_names.rename(columns={'name': 'seller_name'}), left_on='seller_id',
-                        right_on='chat_id', how='left', suffixes=('', '_')).drop(['chat_id_'], axis=1)
-            df = df[['chat_id', 'name', 'date', 'price', 'Название цветка', 
-                    'Количество', 'sold_flag', 'seller_id', 'seller_name']]
-            df.to_excel(writer, sheet_name=f'Bouquets_{timestamp_shortened}', index=False)
+        df = df[['chat_id', 'name', 'date', 'price', 'Название цветка', 
+                'Количество', 'sold_flag', 'seller_id', 'seller_name']]
+        df.to_excel(writer, sheet_name=f'Bouquets_{timestamp_shortened}', index=False)
     else:
         pass
 
@@ -273,7 +302,7 @@ def generate_report() -> pd.ExcelWriter:
         df_lost = pd.DataFrame(columns=['chat_id', 'timestamp', 'Название цветка', 'Количество'])
 
         # Проходим по данным и добавляем строки в DataFrame
-        for chat_id, timestamps_info in lost_flowers.items():
+        for chat_id_key, timestamps_info in lost_flowers.items():
             for timestamp, flowers_info in timestamps_info.items():
                 # Создаем временный DataFrame для цветов
                 temp_df = pd.DataFrame.from_dict(flowers_info, orient='index', columns=['Количество'])
@@ -282,7 +311,7 @@ def generate_report() -> pd.ExcelWriter:
                 temp_df['Название цветка'] = temp_df.index
                 
                 # Добавляем остальные колонки
-                temp_df['chat_id'] = int(chat_id)
+                temp_df['chat_id'] = int(chat_id_key)
                 temp_df['timestamp'] = timestamp
                 
                 # Объединяем временный DataFrame с основным
@@ -367,17 +396,16 @@ def process_admin_user_file(message, role, user_id):
     username = message.text
 
     try:
+        int(user_id)   ##### ПОТОМ ДОПИШИ НОРМАЛЬНО
         # Загружаем данные из JSON-файла
-        with open(admin_users_file, 'r', encoding='utf-8') as file:
-            users_data = json.load(file)
+        users_data = admin_users_handler.load()
 
         # Добавляем нового пользователя
         new_user = {"chat_id": user_id, "name": username}
         users_data[role].append(new_user)
 
         # Сохраняем обновленные данные
-        with open(admin_users_file, 'w', encoding='utf-8') as file:
-            json.dump(users_data, file, ensure_ascii=False)
+        admin_users_handler.save(users_data)
 
         bot.reply_to(message, f'Пользователь {username} ({user_id}) добавлен с ролью {role}')
     except Exception as e:
@@ -450,18 +478,16 @@ def delete_user(user_id):
         None.
     """
     # Загружаем данные из JSON-файла
-    with open(admin_users_file, 'r', encoding='utf-8') as file:
-        data = json.load(file)
+    data = admin_users_handler.load()
 
     # Находим пользователя в списке "admins"
     for user in data["users"]:
-        if user["chat_id"] == user_id:
+        if user["chat_id"] == str(user_id): ####### Исправить потом
             data["users"].remove(user)
             break
 
     # Сохраняем обновленные данные
-    with open(admin_users_file, 'w', encoding='utf-8') as file:
-        json.dump(data, file, ensure_ascii=False)
+    admin_users_handler.save(data)
 
 @bot.message_handler(commands=['users_list'])
 @require_admin
@@ -477,8 +503,7 @@ def show_users_command(message):
     """
     # Загружаем данные из JSON-файла
     try:
-        with open(admin_users_file, 'r', encoding='utf-8') as file:
-            data = json.load(file)
+        data = admin_users_handler.load()
 
         admins_text = get_users_info(data["admins"])
         users_text = get_users_info(data["users"])
@@ -504,17 +529,19 @@ def get_users_info(users):
 
     text = ""
     for user in users:
-        text += f"* {user['name']} ({user['chat_id']})\n"
+        text += f"- {user['name']} ({user['chat_id']})\n"
 
     return text
 
 #####################################
 @bot.message_handler(commands=['sell_bouquet'])
+@require_user
 def get_sold_bouquet_price(message):
     """Запрашивает у пользователя цену букета."""
     chat_id = message.chat.id
 
     bot.send_message(chat_id, 'Введите цену букета:')
+    # bot.register_next_step_handler(message, partial(get_sold_bouquet_price, chat_id))
     bot.register_next_step_handler(message, find_bouquets_by_price)
 
 def find_bouquets_by_price(message):
@@ -524,7 +551,7 @@ def find_bouquets_by_price(message):
     try:
         price = float(message.text.replace(',', '.'))
         matching_bouquets = []
-        for chat_id, bouquets_info in bouquets.items():
+        for chat_id_key, bouquets_info in bouquets.items():
             for timestamp, bouquet_data in bouquets_info.items():
                 if not bouquet_data["sold_flag"] and bouquet_data["price"] == price:
                     matching_bouquets.append((timestamp, bouquet_data))
@@ -538,7 +565,8 @@ def find_bouquets_by_price(message):
         bot.send_message(chat_id, 'Пожалуйста, введите корректную цену в виде числа.')
 
 def display_bouquets_list(message, matching_bouquets):
-    """Выводит список букетов с указанной ценой."""
+    """Выводит список букетов с указанной ценой.
+        chat_id здесь совпадает с seller_chat_id"""
     chat_id = message.chat.id
     keyboard = types.InlineKeyboardMarkup()
     text = 'Выберите букет:\n\n'
@@ -568,14 +596,15 @@ def select_bouquet_by_number(call):
     date_time = json.loads(call.data)[1]
 
     try:
-        for chat_id, bouquets_info in bouquets.items():
+        for chat_id_key, bouquets_info in bouquets.items():
             for timestamp, bouquet_data in bouquets_info.items():
                 if timestamp == date_time:
                     bouquet_data["sold_flag"] = 1
                     bouquet_data['seller_id'] = str(seller_chat_id)
-                    with open(bouquets_file, 'w', encoding='utf-8') as f:
-                        json.dump(bouquets, f, ensure_ascii=False)
-                    bot.send_message(chat_id, 'Букет успешно продан!')
+                    
+                    bouquets_handler.save(bouquets)
+
+                    bot.send_message(seller_chat_id, 'Букет успешно продан!')
     except ValueError:
         bot.send_message(seller_chat_id, 'Пожалуйста, введите номер букета в виде числа.')
 
