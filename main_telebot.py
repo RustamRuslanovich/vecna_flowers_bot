@@ -523,15 +523,16 @@ def find_bouquets_by_price(message):
                     matching_bouquets.append((timestamp, bouquet_data))
 
         if matching_bouquets:
-            display_bouquets_list(chat_id, matching_bouquets)
+            display_bouquets_list(message, matching_bouquets)
 
         else:
             bot.send_message(chat_id, f'Букетов по цене {price} руб. не найдено.')
     except ValueError:
         bot.send_message(chat_id, 'Пожалуйста, введите корректную цену в виде числа.')
 
-def display_bouquets_list(chat_id, matching_bouquets):
+def display_bouquets_list(message, matching_bouquets):
     """Выводит список букетов с указанной ценой."""
+    chat_id = message.chat.id
     keyboard = types.InlineKeyboardMarkup()
     text = 'Выберите букет:\n\n'
     
@@ -542,7 +543,7 @@ def display_bouquets_list(chat_id, matching_bouquets):
         # callback_data = str(matching_bouquets[i-1][0])
         callback_data = json.dumps((chat_id, matching_bouquets[i-1][0]))
         keyboard.add(types.InlineKeyboardButton(i, callback_data=callback_data))
-
+    # keyboard.add(types.InlineKeyboardButton('Отмена', callback_data=json.dumps((chat_id, "cancel"))))
     bot.send_message(chat_id, text, reply_markup=keyboard)
 
 
@@ -551,7 +552,12 @@ def select_bouquet_by_number(call):
     """Обрабатывает выбор пользователя по номеру и помечает букет как проданный."""
     # chat_id = message.chat.id
     # match = json.loads(call.data)
-    seller_chat_id = json.loads(call.data)[0]
+    call_data = json.loads(call.data)
+    seller_chat_id = call_data[0]
+
+    # if call.data == 'cancel':
+    #    bot.send_message(seller_chat_id, 'Действие отменено.')
+    
     date_time = json.loads(call.data)[1]
 
     try:
@@ -564,7 +570,7 @@ def select_bouquet_by_number(call):
                         json.dump(bouquets, f, ensure_ascii=False)
                     bot.send_message(chat_id, 'Букет успешно продан!')
     except ValueError:
-        bot.send_message(chat_id, 'Пожалуйста, введите номер букета в виде числа.')
+        bot.send_message(seller_chat_id, 'Пожалуйста, введите номер букета в виде числа.')
 
 
 if __name__ == "__main__":
