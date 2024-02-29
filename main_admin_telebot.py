@@ -66,7 +66,6 @@ def require_admin(func):
     return wrapper
 
 
-
 @bot.message_handler(commands=['start'])
 @require_admin
 def start_command(message):
@@ -89,7 +88,8 @@ def help_command(message):
         Пожалуйста, вводите команды в точности так, как они указаны.
         """
     bot.reply_to(message, help_text)
-    
+
+
 @bot.message_handler(commands=['report'])
 @require_admin
 def report_command(message):
@@ -234,19 +234,30 @@ def process_user_id(message, role):
         None.
     """
     role = role
-    user_id = message.text
+    new_user_id = message.text
+    #Проверим, что его еще нет в списке пользователей
+    admins_list_actual = [admin['chat_id'] for admin in admin_users_handler.load()['admins']]
+    users_list_actual = [user['chat_id'] for user in admin_users_handler.load()['users']]
+    
+    if new_user_id in users_list_actual + admins_list_actual:
+        bot.reply_to(message, 'Этот id уже есть в списке пользователей')
+        return
+    
+    if new_user_id.isdigit():
+        bot.reply_to(message, 'Введите имя пользователя:')
+        bot.register_next_step_handler(message, process_admin_user_file, role, new_user_id)
+    else: 
+        bot.reply_to(message, 'Пожалуйста, введите корректный id в виде числа')
+        bot.register_next_step_handler(message, process_user_id, role)
+    
 
-    bot.reply_to(message, 'Введите имя пользователя:')
-    bot.register_next_step_handler(message, process_admin_user_file, role, user_id)
-
-
-def process_admin_user_file(message, role, user_id):
+def process_admin_user_file(message, role, new_user_id):
     """
     Сохраняет информацию о пользователе в JSON-файле.
 
     Args:
         message (telebot.types.Message): Telegram message object.
-        user_id (int): ID пользователя Telegram.
+        new_user_id (int): ID пользователя Telegram.
         username (str): Имя пользователя.
 
     Returns:
@@ -255,18 +266,18 @@ def process_admin_user_file(message, role, user_id):
     username = message.text
 
     try:
-        int(user_id)   ##### ПОТОМ ДОПИШИ НОРМАЛЬНО
+        int(new_user_id)   ##### ПОТОМ ДОПИШИ НОРМАЛЬНО
         # Загружаем данные из JSON-файла
         users_data = admin_users_handler.load()
 
         # Добавляем нового пользователя
-        new_user = {"chat_id": user_id, "name": username}
+        new_user = {"chat_id": new_user_id, "name": username}
         users_data[role].append(new_user)
 
         # Сохраняем обновленные данные
         admin_users_handler.save(users_data)
 
-        bot.reply_to(message, f'Пользователь {username} ({user_id}) добавлен с ролью {role}')
+        bot.reply_to(message, f'Пользователь {username} ({new_user_id}) добавлен с ролью {role}')
     except Exception as e:
         bot.reply_to(message, f'Ошибка при добавлении пользователя: {e}')
 
@@ -298,10 +309,20 @@ def process_user_id_for_del(message):
     Returns:
         None.
     """
-    user_id = int(message.text)
-
-    bot.reply_to(message, f'Вы уверены, что хотите удалить пользователя {user_id}?\nНапишите да или нет')
-    bot.register_next_step_handler(message, confirm_user_deletion, user_id)
+    user_id_to_del = message.text 
+    #Проверим, что id есть списке пользователей
+    admins_list_actual = [admin['chat_id'] for admin in admin_users_handler.load()['admins']]
+    users_list_actual = [user['chat_id'] for user in admin_users_handler.load()['users']]
+    
+    if user_id_to_del in users_list_actual + admins_list_actual:
+        bot.reply_to(message, 'Этого пользователя и так нет в списке')
+        return
+    
+    if user_id_to_del.isdigit():
+        bot.reply_to(message, f'Вы уверены, что хотите удалить пользователя {user_id_to_del}?\nНапишите да или нет')
+        bot.register_next_step_handler(message, confirm_user_deletion, user_id_to_del)
+    else:
+        bot.reply_to(message, 'Пожалуйста, введите корректный id в виде числа')
 
 
 def confirm_user_deletion(message, user_id):
