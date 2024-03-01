@@ -53,8 +53,8 @@ lost_flowers_handler = DataHandler(LOST_FLOWERS_FILE)
 admin_users_handler = DataHandler(ADMIN_USERS_FILE)
 
 # Загрузка данных
-bouquets = bouquets_handler.load()
-lost_flowers = lost_flowers_handler.load()
+# bouquets = bouquets_handler.load()
+# lost_flowers = lost_flowers_handler.load()
 admin_users = admin_users_handler.load()
 ADMIN_CHAT_ID = [int(admin['chat_id']) for admin in admin_users['admins']]
 
@@ -119,6 +119,8 @@ def generate_report() -> pd.ExcelWriter:
     """Генерирует отчет в формате Excel."""
     writer = pd.ExcelWriter(REPORT_FILE, engine='xlsxwriter')
 
+    bouquets = bouquets_handler.load()
+    lost_flowers = lost_flowers_handler.load()
     # Создадим таблицу с именами и chat_id
     data = admin_users_handler.load()
 
@@ -126,7 +128,7 @@ def generate_report() -> pd.ExcelWriter:
 
     # Добавляем данные о букетах в отчет
     if bouquets:    
-        df = pd.DataFrame(columns=['chat_id', 'date', 'price', 'Название цветка', 'Количество', 'sold_flag', 'seller_id'])
+        df = pd.DataFrame(columns=['chat_id', 'date', 'price', 'Название цветка', 'Количество', 'sold_flag', 'seller_id', 'sold_data'])
         
         # Проходим по данным и добавляем строки в DataFrame
         for chat_id_key, bouquets_info in bouquets.items():
@@ -182,7 +184,7 @@ def generate_report() -> pd.ExcelWriter:
                 temp_df['Название цветка'] = temp_df.index
                 
                 # Добавляем остальные колонки
-                temp_df['chat_id'] = int(chat_id_key)
+                temp_df['chat_id'] = chat_id_key
                 temp_df['timestamp'] = timestamp
                 
                 # Объединяем временный DataFrame с основным
@@ -271,22 +273,6 @@ def process_user_id(message, role):
     else: 
         bot.reply_to(message, 'Пожалуйста, введите корректный id в виде числа')
         bot.register_next_step_handler(message, process_user_id, role)
-    
-
-# @bot.callback_query_handler(func=lambda call: call.data)
-# def cancel_handler(call):
-#     fake_message = telebot.types.Message()
-#     fake_message.text = 'cancel'
-#     fake_message.chat.id = call.message.chat.id
-    
-#     fake_update = Update()
-#     fake_update.callback_query = CallbackQuery()
-#     fake_update.callback_query.message = fake_message
-    
-#     role = ''
-#     new_user_id = ''
-#     bot.register_next_step_handler(fake_message, process_admin_user_file, role, new_user_id)
-    
 
     
 def process_admin_user_file(message, role, new_user_id):

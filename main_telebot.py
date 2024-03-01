@@ -186,6 +186,7 @@ def get_composition(message, bouquet_key):
             bouquets[chat_id][bouquet_key]['composition'][flower.strip()] = int(quantity)
             bouquets[chat_id][bouquet_key]['sold_flag'] = 0
             bouquets[chat_id][bouquet_key]['seller_id'] = ''
+            bouquets[chat_id][bouquet_key]['sold_data'] = ''
 
         except Exception:
             is_valid_composition = False
@@ -308,8 +309,6 @@ def display_bouquets_list(message, matching_bouquets):
 @bot.callback_query_handler(func=lambda call: call.data)
 def select_bouquet_by_number(call):
     """Обрабатывает выбор пользователя по номеру и помечает букет как проданный."""
-    # chat_id = message.chat.id
-    # match = json.loads(call.data)
     call_data = json.loads(call.data)
     seller_chat_id = call_data[0]
 
@@ -317,8 +316,6 @@ def select_bouquet_by_number(call):
     cancel_button = types.InlineKeyboardButton("Отмена", callback_data='cancel')
     keyboard.add(cancel_button)
     
-    # if call.data == 'cancel':
-    #    bot.send_message(seller_chat_id, 'Действие отменено.')
     
     date_time = json.loads(call.data)[1]
 
@@ -328,6 +325,7 @@ def select_bouquet_by_number(call):
                 if timestamp == date_time:
                     bouquet_data["sold_flag"] = 1
                     bouquet_data['seller_id'] = str(seller_chat_id)
+                    bouquet_data['sold_data'] = datetime.now().isoformat()
                     
                     bouquets_handler.save(bouquets)
 
