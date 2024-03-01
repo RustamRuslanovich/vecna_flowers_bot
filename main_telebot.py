@@ -45,6 +45,7 @@ class DataHandler:
         with open(self.file_path, 'w', encoding='utf-8') as file:
             json.dump(data, file, ensure_ascii=False, indent=4)
 
+
 # Инициализация обработчиков данных
 bouquets_handler = DataHandler(BOUQUETS_FILE)
 lost_flowers_handler = DataHandler(LOST_FLOWERS_FILE)
@@ -76,6 +77,15 @@ def require_user(func):
     return wrapper
 
 
+@bot.callback_query_handler(func=lambda call: call.data == 'cancel')
+def cancel_callback(call):
+    """Обрабатывает нажатие кнопки "Отменить"."""
+    chat_id = call.message.chat.id
+    bot.clear_step_handler_by_chat_id(chat_id)
+    bot.answer_callback_query(call.id)
+    bot.send_message(chat_id, 'Действие отменено.')
+    
+    
 @bot.message_handler(commands=['start'])
 @require_user
 def start_command(message):
@@ -112,28 +122,37 @@ def help_command(message):
 @require_user
 def add_bouquet_command(message):
     """Инициирует процесс добавления нового букета."""
+    
+    keyboard = types.InlineKeyboardMarkup()
+    cancel_button = types.InlineKeyboardButton("Отмена", callback_data='cancel')
+    keyboard.add(cancel_button)
+    
     chat_id = message.chat.id
     bouquet_key = datetime.now().isoformat() ## Пока только время
 
     # Создает новый словарь букета для текущего чата
     bouquets.setdefault(chat_id, {})[bouquet_key] = {'price': 0, 'composition': {}}
 
-    bot.reply_to(message, 'Введите стоимость нового букета:')
+    bot.reply_to(message, 'Введите стоимость нового букета:', reply_markup=keyboard)
     bot.register_next_step_handler(message, get_bouquet_price, bouquet_key)
 
 
 def get_bouquet_price(message, bouquet_key):
     """Получает цену букета и переходит к вводу состава."""
     chat_id = message.chat.id
+    
+    keyboard = types.InlineKeyboardMarkup()
+    cancel_button = types.InlineKeyboardButton("Отмена", callback_data='cancel')
+    keyboard.add(cancel_button)
 
     try:
         msg = '''Введите состав букета в формате \nцвет1 количество1 \nцвет2 количество2 \nи т.д.'''
         price = float(message.text.replace(',', '.'))
         bouquets[chat_id][bouquet_key]['price'] = price
-        bot.reply_to(message, msg)
+        bot.reply_to(message, msg, reply_markup=keyboard)
         bot.register_next_step_handler(message, get_composition, bouquet_key)
     except ValueError:
-        bot.reply_to(message, 'Пожалуйста, введите корректную стоимость в виде числа')
+        bot.reply_to(message, 'Пожалуйста, введите корректную стоимость в виде числа', reply_markup=keyboard)
         bot.register_next_step_handler(message, get_bouquet_price, bouquet_key)
 
 
@@ -149,7 +168,11 @@ def get_composition(message, bouquet_key):
         None.
     """
     chat_id = message.chat.id
-
+    
+    keyboard = types.InlineKeyboardMarkup()
+    cancel_button = types.InlineKeyboardButton("Отмена", callback_data='cancel')
+    keyboard.add(cancel_button)
+    
     composition_text = message.text
     composition_items = [item.strip() for item in composition_text.split('\n')]
 
@@ -166,7 +189,7 @@ def get_composition(message, bouquet_key):
 
         except Exception:
             is_valid_composition = False
-            bot.reply_to(message, 'Некорректный формат ввода. \nИспользуйте формат: \nцвет1 количество1 \nцвет2 количество2 \nи т.д.')
+            bot.reply_to(message, 'Некорректный формат ввода. \nИспользуйте формат: \nцвет1 количество1 \nцвет2 количество2 \nи т.д.', reply_markup=keyboard)
             bot.register_next_step_handler(message, get_composition, bouquet_key)
     
     if is_valid_composition:
@@ -180,11 +203,15 @@ def add_lost_flowers_command(message):
     """Инициирует процесс добавления информации о пропавших цветах."""
     chat_id = message.chat.id
     timestamp = datetime.now().isoformat()
-
+    
+    keyboard = types.InlineKeyboardMarkup()
+    cancel_button = types.InlineKeyboardButton("Отмена", callback_data='cancel')
+    keyboard.add(cancel_button)
+    
     # Создает новый словарь пропавших цветов для текущего чата
     lost_flowers.setdefault(chat_id, {})[timestamp] = {}
     
-    bot.reply_to(message, 'Введите состав букета в формате \nцвет1 количество1 \nцвет2 количество2 \nи т.д.')
+    bot.reply_to(message, 'Введите состав букета в формате \nцвет1 количество1 \nцвет2 количество2 \nи т.д.', reply_markup=keyboard)
     bot.register_next_step_handler(message, get_lost_flowers, timestamp)
     
 
@@ -192,7 +219,11 @@ def add_lost_flowers_command(message):
 def get_lost_flowers(message, timestamp):
     """Получает информацию о пропавших цветах и сохраняет данные."""
     chat_id = message.chat.id
-
+    
+    keyboard = types.InlineKeyboardMarkup()
+    cancel_button = types.InlineKeyboardButton("Отмена", callback_data='cancel')
+    keyboard.add(cancel_button)
+    
     lost_flowers_text = message.text
     lost_flowers_items = [item.strip() for item in lost_flowers_text.split('\n')]
 
@@ -205,7 +236,7 @@ def get_lost_flowers(message, timestamp):
             # flower, quantity = parts[0].strip(), parts[1].strip()
             lost_flowers.setdefault(chat_id, {}).setdefault(timestamp, {})[flower] = int(quantity)
         except Exception:
-            bot.reply_to(message, '''Некорректный формат ввода \nИспользуйте формат: \nцвет1 количество1 \nцвет2 количество2 \nи т.д.''')
+            bot.reply_to(message, '''Некорректный формат ввода \nИспользуйте формат: \nцвет1 количество1 \nцвет2 количество2 \nи т.д.''', reply_markup=keyboard)
             bot.register_next_step_handler(message, get_lost_flowers, timestamp)
             return
 
@@ -220,15 +251,23 @@ def get_lost_flowers(message, timestamp):
 def get_sold_bouquet_price(message):
     """Запрашивает у пользователя цену букета."""
     chat_id = message.chat.id
-
-    bot.send_message(chat_id, 'Введите цену букета:')
+    
+    keyboard = types.InlineKeyboardMarkup()
+    cancel_button = types.InlineKeyboardButton("Отмена", callback_data='cancel')
+    keyboard.add(cancel_button)
+    
+    bot.send_message(chat_id, 'Введите цену букета:', reply_markup=keyboard)
     # bot.register_next_step_handler(message, partial(get_sold_bouquet_price, chat_id))
     bot.register_next_step_handler(message, find_bouquets_by_price)
 
 def find_bouquets_by_price(message):
     """Находит букеты с указанной ценой и выводит их список."""
     chat_id = message.chat.id
-
+    
+    keyboard = types.InlineKeyboardMarkup()
+    cancel_button = types.InlineKeyboardButton("Отмена", callback_data='cancel')
+    keyboard.add(cancel_button)
+    
     try:
         price = float(message.text.replace(',', '.'))
         matching_bouquets = []
@@ -243,7 +282,7 @@ def find_bouquets_by_price(message):
         else:
             bot.send_message(chat_id, f'Букетов по цене {price} руб. не найдено.')
     except ValueError:
-        bot.send_message(chat_id, 'Пожалуйста, введите корректную цену в виде числа.')
+        bot.send_message(chat_id, 'Пожалуйста, введите корректную цену в виде числа.', reply_markup=keyboard)
 
 def display_bouquets_list(message, matching_bouquets):
     """Выводит список букетов с указанной ценой.
@@ -259,6 +298,9 @@ def display_bouquets_list(message, matching_bouquets):
         # callback_data = str(matching_bouquets[i-1][0])
         callback_data = json.dumps((chat_id, matching_bouquets[i-1][0]))
         keyboard.add(types.InlineKeyboardButton(i, callback_data=callback_data))
+        
+    cancel_button = types.InlineKeyboardButton("Отмена", callback_data='cancel')
+    keyboard.add(cancel_button)
     # keyboard.add(types.InlineKeyboardButton('Отмена', callback_data=json.dumps((chat_id, "cancel"))))
     bot.send_message(chat_id, text, reply_markup=keyboard)
 
@@ -271,6 +313,10 @@ def select_bouquet_by_number(call):
     call_data = json.loads(call.data)
     seller_chat_id = call_data[0]
 
+    keyboard = types.InlineKeyboardMarkup()
+    cancel_button = types.InlineKeyboardButton("Отмена", callback_data='cancel')
+    keyboard.add(cancel_button)
+    
     # if call.data == 'cancel':
     #    bot.send_message(seller_chat_id, 'Действие отменено.')
     
@@ -287,7 +333,7 @@ def select_bouquet_by_number(call):
 
                     bot.send_message(seller_chat_id, 'Букет успешно продан!')
     except ValueError:
-        bot.send_message(seller_chat_id, 'Пожалуйста, введите номер букета в виде числа.')
+        bot.send_message(seller_chat_id, 'Пожалуйста, введите номер букета в виде числа.', reply_markup=keyboard)
 
 
 if __name__ == "__main__":

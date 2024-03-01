@@ -8,6 +8,8 @@ from decouple import config
 from openpyxl import Workbook
 from functools import partial
 from typing import Dict, Any
+from telebot.types import Message, CallbackQuery, Update
+from functools import wraps
 import logging
 
 # Константы
@@ -66,12 +68,22 @@ def require_admin(func):
     return wrapper
 
 
+@bot.callback_query_handler(func=lambda call: call.data == 'cancel')
+def cancel_callback(call):
+    """Обрабатывает нажатие кнопки "Отменить"."""
+    chat_id = call.message.chat.id
+    bot.clear_step_handler_by_chat_id(chat_id)
+    bot.answer_callback_query(call.id)
+    bot.send_message(chat_id, 'Действие отменено.')
+    
+    
 @bot.message_handler(commands=['start'])
 @require_admin
 def start_command(message):
     bot.reply_to(message, 'Привет! Этот бот для админов цветочного магазина. Используйте /help для справки.')
     
-
+    
+@bot.message_handler(commands=['help'])
 def help_command(message):
     """Предоставляет информацию о командах бота."""
     # if message.chat.id not in ADMIN_CHAT_ID:
@@ -201,8 +213,13 @@ def add_user_command(message):
     Returns:
         None.
     """
+    
+    keyboard = types.InlineKeyboardMarkup()
+    cancel_button = types.InlineKeyboardButton("Отмена", callback_data='cancel')
+    keyboard.add(cancel_button)
+    
     role = 'users'
-    bot.reply_to(message, 'Введите ID пользователя:')
+    bot.reply_to(message, 'Введите ID пользователя:', reply_markup=keyboard)
     bot.register_next_step_handler(message, process_user_id, role)
 
 
@@ -235,6 +252,11 @@ def process_user_id(message, role):
     """
     role = role
     new_user_id = message.text
+    
+    keyboard = types.InlineKeyboardMarkup()
+    cancel_button = types.InlineKeyboardButton("Отмена", callback_data='cancel')
+    keyboard.add(cancel_button)
+    
     #Проверим, что его еще нет в списке пользователей
     admins_list_actual = [admin['chat_id'] for admin in admin_users_handler.load()['admins']]
     users_list_actual = [user['chat_id'] for user in admin_users_handler.load()['users']]
@@ -244,13 +266,29 @@ def process_user_id(message, role):
         return
     
     if new_user_id.isdigit():
-        bot.reply_to(message, 'Введите имя пользователя:')
+        bot.reply_to(message, 'Введите имя пользователя:', reply_markup=keyboard)
         bot.register_next_step_handler(message, process_admin_user_file, role, new_user_id)
     else: 
         bot.reply_to(message, 'Пожалуйста, введите корректный id в виде числа')
         bot.register_next_step_handler(message, process_user_id, role)
     
 
+# @bot.callback_query_handler(func=lambda call: call.data)
+# def cancel_handler(call):
+#     fake_message = telebot.types.Message()
+#     fake_message.text = 'cancel'
+#     fake_message.chat.id = call.message.chat.id
+    
+#     fake_update = Update()
+#     fake_update.callback_query = CallbackQuery()
+#     fake_update.callback_query.message = fake_message
+    
+#     role = ''
+#     new_user_id = ''
+#     bot.register_next_step_handler(fake_message, process_admin_user_file, role, new_user_id)
+    
+
+    
 def process_admin_user_file(message, role, new_user_id):
     """
     Сохраняет информацию о пользователе в JSON-файле.
@@ -263,8 +301,9 @@ def process_admin_user_file(message, role, new_user_id):
     Returns:
         None.
     """
+    
     username = message.text
-
+    
     try:
         int(new_user_id)   ##### ПОТОМ ДОПИШИ НОРМАЛЬНО
         # Загружаем данные из JSON-файла
@@ -295,7 +334,11 @@ def del_user_command(message):
     Returns:
         None.
     """
-    bot.reply_to(message, 'Введите ID пользователя:')
+    keyboard = types.InlineKeyboardMarkup()
+    cancel_button = types.InlineKeyboardButton("Отмена", callback_data='cancel')
+    keyboard.add(cancel_button)
+    
+    bot.reply_to(message, 'Введите ID пользователя:', reply_markup=keyboard)
     bot.register_next_step_handler(message, process_user_id_for_del)
 
 
@@ -309,12 +352,13 @@ def process_user_id_for_del(message):
     Returns:
         None.
     """
+    
     user_id_to_del = message.text 
     #Проверим, что id есть списке пользователей
     admins_list_actual = [admin['chat_id'] for admin in admin_users_handler.load()['admins']]
     users_list_actual = [user['chat_id'] for user in admin_users_handler.load()['users']]
     
-    if user_id_to_del in users_list_actual + admins_list_actual:
+    if user_id_to_del not in users_list_actual + admins_list_actual:
         bot.reply_to(message, 'Этого пользователя и так нет в списке')
         return
     
