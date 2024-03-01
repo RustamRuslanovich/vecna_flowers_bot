@@ -247,21 +247,30 @@ def get_lost_flowers(message, timestamp):
 
 
 
-@bot.message_handler(commands=['sell_bouquet'])
+@bot.message_handler(commands=['sell_bouquet', 'lost_bouquet'])
 @require_user
-def get_sold_bouquet_price(message):
-    """Запрашивает у пользователя цену букета."""
+def process_bouquet_command(message):
     chat_id = message.chat.id
-    
     keyboard = types.InlineKeyboardMarkup()
     cancel_button = types.InlineKeyboardButton("Отмена", callback_data='cancel')
     keyboard.add(cancel_button)
-    
-    bot.send_message(chat_id, 'Введите цену букета:', reply_markup=keyboard)
-    # bot.register_next_step_handler(message, partial(get_sold_bouquet_price, chat_id))
-    bot.register_next_step_handler(message, find_bouquets_by_price)
 
-def find_bouquets_by_price(message):
+    command = message.text.split()[0].lower()
+    
+    if command == '/sell_bouquet':
+        field = 'sold_flag'
+        # message_text = 'Букет успешно продан!'
+    elif command == '/lost_bouquet':
+        field = 'is_lost'
+        # message_text = 'Букет помечен как пропавший!'
+    else:
+        bot.send_message(chat_id, 'Неверная команда. Используйте /help для справки.')
+        return
+
+    bot.send_message(chat_id, f'Введите цену букета:', reply_markup=keyboard)
+    bot.register_next_step_handler(message, partial(find_bouquets_by_price, field=field))
+
+def find_bouquets_by_price(message, field):
     """Находит букеты с указанной ценой и выводит их список."""
     chat_id = message.chat.id
     
@@ -274,64 +283,56 @@ def find_bouquets_by_price(message):
         matching_bouquets = []
         for chat_id_key, bouquets_info in bouquets.items():
             for timestamp, bouquet_data in bouquets_info.items():
-                if not bouquet_data["sold_flag"] and bouquet_data["price"] == price:
+                if  (bouquet_data["sold_flag"] == 0 and bouquet_data["is_lost"] == 0) and bouquet_data["price"] == price:
                     matching_bouquets.append((timestamp, bouquet_data))
 
         if matching_bouquets:
-            display_bouquets_list(message, matching_bouquets)
+            display_bouquets_list(message, matching_bouquets, field)
 
         else:
             bot.send_message(chat_id, f'Букетов по цене {price} руб. не найдено.')
     except ValueError:
         bot.send_message(chat_id, 'Пожалуйста, введите корректную цену в виде числа.', reply_markup=keyboard)
 
-def display_bouquets_list(message, matching_bouquets):
+def display_bouquets_list(message, matching_bouquets, field):
     """Выводит список букетов с указанной ценой.
         chat_id здесь совпадает с seller_chat_id"""
     chat_id = message.chat.id
     keyboard = types.InlineKeyboardMarkup()
     text = 'Выберите букет:\n\n'
-    
+
     for i, (timestamp, bouquet_data) in enumerate(matching_bouquets, 1):
         composition_str = ', '.join(f'{k}: {v}' for k, v in bouquet_data["composition"].items())
         text += f'{i}. {bouquet_data["price"]} руб. ({timestamp})\nСостав: {composition_str}\n\n'
 
-        # callback_data = str(matching_bouquets[i-1][0])
-        callback_data = json.dumps((chat_id, matching_bouquets[i-1][0]))
+        callback_data = json.dumps((chat_id, matching_bouquets[i-1][0], field))
         keyboard.add(types.InlineKeyboardButton(i, callback_data=callback_data))
-        
+
     cancel_button = types.InlineKeyboardButton("Отмена", callback_data='cancel')
     keyboard.add(cancel_button)
-    # keyboard.add(types.InlineKeyboardButton('Отмена', callback_data=json.dumps((chat_id, "cancel"))))
     bot.send_message(chat_id, text, reply_markup=keyboard)
 
 
 @bot.callback_query_handler(func=lambda call: call.data)
 def select_bouquet_by_number(call):
-    """Обрабатывает выбор пользователя по номеру и помечает букет как проданный."""
+    """Обрабатывает выбор пользователя по номеру и помечает букет как проданный или пропавший."""
     call_data = json.loads(call.data)
     seller_chat_id = call_data[0]
+    field = call_data[2]
+    # message_text = call_data[3]
 
-    keyboard = types.InlineKeyboardMarkup()
-    cancel_button = types.InlineKeyboardButton("Отмена", callback_data='cancel')
-    keyboard.add(cancel_button)
-    
-    
     date_time = json.loads(call.data)[1]
 
-    try:
-        for chat_id_key, bouquets_info in bouquets.items():
-            for timestamp, bouquet_data in bouquets_info.items():
-                if timestamp == date_time:
-                    bouquet_data["sold_flag"] = 1
-                    bouquet_data['seller_id'] = str(seller_chat_id)
-                    bouquet_data['sold_data'] = datetime.now().isoformat()
-                    
-                    bouquets_handler.save(bouquets)
+    for chat_id_key, bouquets_info in bouquets.items():
+        for timestamp, bouquet_data in bouquets_info.items():
+            if timestamp == date_time:
+                bouquet_data[field] = 1
+                bouquet_data['seller_id'] = seller_chat_id
+                bouquet_data['sold_data'] = datetime.now().isoformat()
 
-                    bot.send_message(seller_chat_id, 'Букет успешно продан!')
-    except ValueError:
-        bot.send_message(seller_chat_id, 'Пожалуйста, введите номер букета в виде числа.', reply_markup=keyboard)
+                bouquets_handler.save(bouquets)
+
+                bot.send_message(seller_chat_id, "Букет учтен")
 
 
 if __name__ == "__main__":
