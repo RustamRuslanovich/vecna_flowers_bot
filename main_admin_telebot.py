@@ -128,7 +128,7 @@ def generate_report() -> pd.ExcelWriter:
 
     # Добавляем данные о букетах в отчет
     if bouquets:    
-        df = pd.DataFrame(columns=['chat_id', 'date', 'price', 'Название цветка', 'Количество', 'sold_flag', 'seller_id', 'sold_data'])
+        df = pd.DataFrame(columns=['chat_id', 'date', 'price', 'Название цветка', 'Количество', 'sold_flag', 'is_lost', 'seller_id', 'sold\lost_date'])
         
         # Проходим по данным и добавляем строки в DataFrame
         for chat_id_key, bouquets_info in bouquets.items():
@@ -136,7 +136,9 @@ def generate_report() -> pd.ExcelWriter:
                     price = bouquet_data['price']
                     composition = bouquet_data['composition']
                     sold_flag = bouquet_data['sold_flag']
+                    is_lost = bouquet_data['is_lost']
                     seller_id = bouquet_data['seller_id']
+                    sold_lost_date = bouquet_data['sold_lost_date']
                     # Создаем временный DataFrame для composition
                     temp_df = pd.DataFrame.from_dict(composition, orient='index', columns=['Количество'])
                     
@@ -148,8 +150,9 @@ def generate_report() -> pd.ExcelWriter:
                     temp_df['date'] = bouquet_key
                     temp_df['price'] = price
                     temp_df['sold_flag'] = sold_flag
+                    temp_df['is_lost'] = is_lost
                     temp_df['seller_id'] = seller_id
-                    
+                    temp_df['sold\lost_date'] = sold_lost_date
                     # Объединяем временный DataFrame с основным
                     df = pd.concat([df, temp_df])
 
@@ -165,7 +168,7 @@ def generate_report() -> pd.ExcelWriter:
                     right_on='chat_id', how='left', suffixes=('', '_')).drop(['chat_id_'], axis=1)
 
         df = df[['chat_id', 'name', 'date', 'price', 'Название цветка', 
-                'Количество', 'sold_flag', 'seller_id', 'seller_name']]
+                'Количество', 'sold_flag', 'is_lost', 'seller_id', 'seller_name', 'sold\lost_date']]
         df.to_excel(writer, sheet_name=f'Bouquets_{timestamp_shortened}', index=False)
     else:
         pass

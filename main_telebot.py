@@ -185,8 +185,9 @@ def get_composition(message, bouquet_key):
             assert not any(char.isdigit() for char in flower)
             bouquets[chat_id][bouquet_key]['composition'][flower.strip()] = int(quantity)
             bouquets[chat_id][bouquet_key]['sold_flag'] = 0
+            bouquets[chat_id][bouquet_key]['is_lost'] = 0
             bouquets[chat_id][bouquet_key]['seller_id'] = ''
-            bouquets[chat_id][bouquet_key]['sold_data'] = ''
+            bouquets[chat_id][bouquet_key]['sold_lost_date'] = ''
 
         except Exception:
             is_valid_composition = False
@@ -327,8 +328,8 @@ def select_bouquet_by_number(call):
         for timestamp, bouquet_data in bouquets_info.items():
             if timestamp == date_time:
                 bouquet_data[field] = 1
-                bouquet_data['seller_id'] = seller_chat_id
-                bouquet_data['sold_data'] = datetime.now().isoformat()
+                bouquet_data['seller_id'] = str(seller_chat_id)
+                bouquet_data['sold_lost_date'] = datetime.now().isoformat()
 
                 bouquets_handler.save(bouquets)
 
